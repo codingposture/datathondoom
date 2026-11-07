@@ -138,6 +138,13 @@ export default function DialogsPage() {
           <button className="btn" onClick={() => setUploadOpen(true)} disabled={busy !== ""}>
             {t("dialogs.upload")}
           </button>
+          <a
+            className="btn"
+            href={`/api/results?groupId=${encodeURIComponent(filters.groupId || "DEV")}`}
+            title={t("dialogs.resultsHint")}
+          >
+            {t("dialogs.results")}
+          </a>
         </div>
       </div>
 

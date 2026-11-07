@@ -19,6 +19,7 @@ export const criterionInput = z
       .object({
         detector: z.string().optional(),
         keywords: z.object({ RU: lang, KZ: lang, EN: lang }).partial().optional(),
+        steps: z.array(z.number().int()).min(2).optional(),
       })
       .default({}),
   })

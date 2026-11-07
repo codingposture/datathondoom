@@ -36,8 +36,8 @@ const WORDS = {
 // ---------- voice criteria (calls) ----------
 // Thresholds calibrated on the 5 DEV recordings: pitch variation inside phrases ranged 2.06–3.68 semitones.
 export const VOICE_THRESHOLDS = {
-  monotoneBelowSt: 2.2, // < 2.2 st → monotone
-  expressiveFromSt: 3.0, // ≥ 3.0 st → lively intonation
+  steadyBelowSt: 2.2, // < 2.2 st pitch variation inside phrases → steady, calm voice (best)
+  swingFromSt: 3.0, // ≥ 3.0 st → strong pitch swings (worst)
   deadAirSec: 5, // silence the operator owes a reply for
   slowMedianLatencySec: 3, // median response latency considered slow
   upsetArousal: 1.2, // client phrase arousal (z) considered agitated
@@ -213,19 +213,21 @@ const detectors: Record<string, (c: CriterionDef, ctx: Ctx) => Draft> = {
   },
 
   voice_intonation(c, ctx) {
+    // Goal: a steady, calm, even voice. Large pitch swings inside phrases score lowest.
     const v = ctx.audio?.operator;
     if (!v) return noVoice(c, ctx);
     const x = v.withinUttF0SdSt;
     const T = VOICE_THRESHOLDS;
     const nums = `${x} пт; диапазон ${v.f0RangeSt} пт; ${v.utterances} фраз`;
     const numsEn = `${x} st; range ${v.f0RangeSt} st; ${v.utterances} phrases`;
-    const ev = [...v.perUtterance].sort((a, b) => (x < T.monotoneBelowSt ? a.f0SdSt - b.f0SdSt : b.f0SdSt - a.f0SdSt)).slice(0, 2);
+    // Evidence: the most variable phrases when the voice is not steady, the steadiest ones otherwise.
+    const ev = [...v.perUtterance].sort((a, b) => (x < T.steadyBelowSt ? a.f0SdSt - b.f0SdSt : b.f0SdSt - a.f0SdSt)).slice(0, 2);
     const evMsgs = ev.map((u) => ctx.messages.find((m) => m.idx === u.idx)).filter((m): m is MessageDto => Boolean(m));
-    if (x >= T.expressiveFromSt)
-      return verdict(scaleValue(c, 1), L(`Живая, выразительная интонация: вариативность высоты голоса внутри фраз ${nums}.`, `Lively, expressive intonation: pitch variation within phrases ${numsEn}.`, `Жанды, мәнерлі интонация: фразалар ішіндегі дауыс биіктігінің өзгеруі ${nums}.`), evMsgs, ctx);
-    if (x >= T.monotoneBelowSt)
-      return verdict(scaleValue(c, 0.5), L(`Интонация ровная, местами выразительная: вариативность высоты голоса ${nums} (норма живой речи ≥ ${T.expressiveFromSt} пт).`, `Fairly even intonation, expressive in places: pitch variation ${numsEn} (lively speech ≥ ${T.expressiveFromSt} st).`, `Интонация бірқалыпты, кей жерде мәнерлі: дауыс биіктігінің өзгеруі ${nums} (жанды сөйлеу ≥ ${T.expressiveFromSt} пт).`), evMsgs, ctx);
-    return verdict(scaleValue(c, 0), L(`Монотонная речь: высота голоса почти не меняется внутри фраз (${nums}; порог монотонности < ${T.monotoneBelowSt} пт).`, `Monotone speech: pitch barely changes within phrases (${numsEn}; monotone below ${T.monotoneBelowSt} st).`, `Монотонды сөйлеу: фразалар ішінде дауыс биіктігі дерлік өзгермейді (${nums}; монотондылық шегі < ${T.monotoneBelowSt} пт).`), evMsgs, ctx, { checked: true });
+    if (x < T.steadyBelowSt)
+      return verdict(scaleValue(c, 1), L(`Ровный, спокойный голос: высота голоса внутри фраз меняется мало (${nums}; ровно < ${T.steadyBelowSt} пт).`, `Steady, calm voice: pitch varies little within phrases (${numsEn}; steady below ${T.steadyBelowSt} st).`, `Бірқалыпты, сабырлы дауыс: фразалар ішінде дауыс биіктігі аз өзгереді (${nums}; бірқалыпты < ${T.steadyBelowSt} пт).`), evMsgs, ctx);
+    if (x < T.swingFromSt)
+      return verdict(scaleValue(c, 0.5), L(`Голос в целом ровный, но местами заметно меняется по высоте: вариативность ${nums} (ровно < ${T.steadyBelowSt} пт).`, `Mostly steady voice with noticeable pitch changes in places: variation ${numsEn} (steady below ${T.steadyBelowSt} st).`, `Дауыс негізінен бірқалыпты, бірақ кей жерде биіктігі айтарлықтай өзгереді: ${nums} (бірқалыпты < ${T.steadyBelowSt} пт).`), evMsgs, ctx, { checked: true });
+    return verdict(scaleValue(c, 0), L(`Неровный голос: сильные перепады высоты голоса внутри фраз (${nums}; перепады ≥ ${T.swingFromSt} пт).`, `Uneven voice: strong pitch swings within phrases (${numsEn}; swings from ${T.swingFromSt} st).`, `Дауыс бірқалыпты емес: фразалар ішінде дауыс биіктігі қатты құбылады (${nums}; ≥ ${T.swingFromSt} пт).`), evMsgs, ctx, { checked: true });
   },
 
   voice_interruptions(c, ctx) {

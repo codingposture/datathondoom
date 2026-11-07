@@ -1,6 +1,6 @@
 // UI dictionaries. Keys are shared; RU is the source of truth.
 const ru = {
-  "detector.voice_intonation": "Голос: интонация (не монотонно)",
+  "detector.voice_intonation": "Голос: ровный, спокойный тон",
   "detector.voice_interruptions": "Голос: не перебивает клиента",
   "detector.voice_pace": "Голос: темп и паузы",
   "detector.voice_calm": "Голос: спокойствие и реакция на эмоции",
@@ -61,6 +61,8 @@ const ru = {
   "dialogs.importing": "Импорт…",
   "dialogs.imported": "Импортировано: {total} (новых {created}, обновлено {updated})",
   "dialogs.upload": "Загрузить JSON",
+  "dialogs.results": "Скачать results.json",
+  "dialogs.resultsHint": "Результаты по чек-листу v4 в формате организаторов (8 критериев; набор из фильтра, по умолчанию DEV)",
   "dialogs.uploaded": "Загружено диалогов: {total}",
   "dialogs.evaluateAll": "Оценить все в списке",
   "dialogs.evaluateSelected": "Оценить выбранные ({n})",
@@ -263,7 +265,7 @@ export type DictKey = keyof typeof ru;
 export type Dict = Record<DictKey, string>;
 
 const en: Dict = {
-  "detector.voice_intonation": "Voice: intonation (not monotone)",
+  "detector.voice_intonation": "Voice: steady, calm tone",
   "detector.voice_interruptions": "Voice: does not interrupt",
   "detector.voice_pace": "Voice: pace and pauses",
   "detector.voice_calm": "Voice: calm tone and reaction to emotion",
@@ -321,6 +323,8 @@ const en: Dict = {
   "dialogs.importing": "Importing…",
   "dialogs.imported": "Imported: {total} ({created} new, {updated} updated)",
   "dialogs.upload": "Upload JSON",
+  "dialogs.results": "Download results.json",
+  "dialogs.resultsHint": "Results on checklist v4 in the organizers' format (8 criteria; dataset from the filter, DEV by default)",
   "dialogs.uploaded": "Dialogs uploaded: {total}",
   "dialogs.evaluateAll": "Evaluate all listed",
   "dialogs.evaluateSelected": "Evaluate selected ({n})",
@@ -515,7 +519,7 @@ const en: Dict = {
 };
 
 const kz: Dict = {
-  "detector.voice_intonation": "Дауыс: интонация (монотонды емес)",
+  "detector.voice_intonation": "Дауыс: бірқалыпты, сабырлы үн",
   "detector.voice_interruptions": "Дауыс: клиенттің сөзін бөлмейді",
   "detector.voice_pace": "Дауыс: қарқын және үзілістер",
   "detector.voice_calm": "Дауыс: сабырлылық және эмоцияға жауап",
@@ -573,6 +577,8 @@ const kz: Dict = {
   "dialogs.importing": "Импорт…",
   "dialogs.imported": "Импортталды: {total} (жаңа {created}, жаңартылды {updated})",
   "dialogs.upload": "JSON жүктеу",
+  "dialogs.results": "results.json жүктеп алу",
+  "dialogs.resultsHint": "v4 чек-парағы бойынша нәтижелер ұйымдастырушылар форматында (8 критерий; сүзгідегі жиын, әдепкі DEV)",
   "dialogs.uploaded": "Жүктелген диалогтар: {total}",
   "dialogs.evaluateAll": "Тізімдегінің бәрін бағалау",
   "dialogs.evaluateSelected": "Таңдалғандарды бағалау ({n})",

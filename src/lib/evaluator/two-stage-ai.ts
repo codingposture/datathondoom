@@ -2,9 +2,11 @@
  * Two-Stage AI Evaluator:
  * - Text Chats (60 of 65 dialogs): Uses ultra-fast unified Groq pipeline (Analysis + Judgment in 1 call, ~750 tokens, 3s).
  * - Voice Calls (5 dialogs with audio): Uses Gemini multimodal to inspect audio recording bytes, or acoustic metrics.
- * - Resilience: Auto-retries rate limits (up to 25s) and falls back to calibrated heuristic engine if both APIs are down.
+ * - Resilience: Auto-retries rate limits (up to 25s); if Gemini fails a call is re-evaluated on its transcript with Groq;
+ *   heuristics are used only as a last resort and never in strict mode (EVALUATOR_STRICT=1, official results export).
  */
-import { callGroq, getGroqApiKey, parseLlmJson } from "../ai/groqClient";
+import { getGeminiModel } from "../ai/geminiClient";
+import { callGroq, getGroqApiKey, getGroqModel, parseLlmJson } from "../ai/groqClient";
 import { runConversationAnalyzer } from "./ai-analyzer";
 import { runChecklistJudge } from "./ai-judge";
 import { mockEvaluator } from "./mock";
@@ -21,7 +23,11 @@ async function evaluateUnifiedGroq(
     .map(
       (c) =>
         `- ID: "${c.id}" | ${c.code}: "${c.title}" | ${
-          c.answerType === "BINARY" ? "BINARY(yes/no)" : `SCALE(${c.scaleMin}..${c.scaleMax})`
+          c.answerType === "BINARY"
+            ? "BINARY(yes/no)"
+            : c.hints?.steps?.length
+              ? `SCALE(one of: ${c.hints.steps.join(", ")})`
+              : `SCALE(${c.scaleMin}..${c.scaleMax})`
         } | NA: ${c.naAllowed}${c.naRule ? ` (${c.naRule})` : ""}${c.isCritical ? " | CRITICAL" : ""}${
           c.description ? ` | ${c.description}` : ""
         }`
@@ -220,22 +226,42 @@ export const twoStageAiEvaluator: Evaluator = {
     checklist: ChecklistDef;
     audio?: AudioBundle | null;
   }): Promise<CriterionVerdict[]> {
-    try {
-      const hasAudioBytes = Boolean(audio?.bytes && audio.bytes.byteLength > 0);
-      const hasGroq = Boolean(getGroqApiKey());
+    // The returned array carries `route`: which model(s) actually produced the verdicts (stored with the evaluation).
+    const withRoute = (v: CriterionVerdict[], route: string) => Object.assign(v, { route });
+    const groqModel = getGroqModel();
+    const geminiModel = getGeminiModel();
+    const hasAudioBytes = Boolean(audio?.bytes && audio.bytes.byteLength > 0);
+    const hasGroq = Boolean(getGroqApiKey());
+    let lastErr: Error | null = null;
 
-      // 1. For text chats without audio: run the ultra-fast unified Groq pipeline (1 call, 750 tokens, 3s)
-      if (!hasAudioBytes && hasGroq) {
-        return await evaluateUnifiedGroq(conversation, messages, checklist);
+    // 1. Calls with audio: Gemini listens (analyzer) → Groq judges (Gemini if Groq fails).
+    if (hasAudioBytes) {
+      try {
+        const dossier = await runConversationAnalyzer(conversation, messages, audio ?? null);
+        const verdicts = await runChecklistJudge(dossier, checklist, messages);
+        return withRoute(verdicts, `gemini:${geminiModel}+groq:${groqModel}`);
+      } catch (e) {
+        lastErr = e as Error;
+        console.warn("Audio evaluation (Gemini) failed, retrying on the transcript with Groq:", lastErr.message);
       }
-
-      // 2. For calls with audio: run multimodal analyzer -> judge
-      const dossier = await runConversationAnalyzer(conversation, messages, audio ?? null);
-      const verdicts = await runChecklistJudge(dossier, checklist, messages);
-      return verdicts;
-    } catch (aiErr) {
-      console.warn("AI evaluation unavailable, falling back to heuristic engine:", (aiErr as Error).message);
-      return mockEvaluator.evaluate({ conversation, messages, checklist, audio });
     }
+
+    // 2. Chats (and calls whose audio route failed): unified Groq pipeline on the transcript.
+    if (hasGroq) {
+      try {
+        const verdicts = await evaluateUnifiedGroq(conversation, messages, checklist);
+        return withRoute(verdicts, hasAudioBytes ? `groq:${groqModel}(transcript-only)` : `groq:${groqModel}`);
+      } catch (e) {
+        lastErr = e as Error;
+      }
+    }
+
+    // 3. Strict mode (used for official results export): never replace an AI evaluation with heuristics.
+    if (process.env.EVALUATOR_STRICT === "1") {
+      throw new Error(`AI evaluation failed: ${lastErr?.message ?? "no AI provider configured"}`);
+    }
+    console.warn("AI evaluation unavailable, falling back to heuristic engine:", lastErr?.message);
+    const verdicts = await mockEvaluator.evaluate({ conversation, messages, checklist, audio });
+    return withRoute(verdicts, "heuristic-fallback");
   },
 };

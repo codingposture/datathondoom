@@ -11,6 +11,8 @@
     "seed": "tsx prisma/seed.ts",
     "import:file": "tsx scripts/import-file.ts",
     "checklist:add-voice": "tsx scripts/add-voice-criteria.ts",
+    "checklist:official": "tsx scripts/add-official-checklist.ts",
+    "results:export": "tsx scripts/export-results.ts",
     "setup": "prisma db push && tsx prisma/seed.ts"
   },
   "prisma": {

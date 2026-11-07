@@ -168,19 +168,19 @@ const CRITERIA_COACHING: Record<string, Record<Lang, CoachingItem>> = {
   },
   V1: {
     RU: {
-      advice: "Следите за интонацией речи: избегайте монотонного механического чтения скрипта, делайте смысловые акценты на ключевых фразах.",
-      script: "«Поддерживайте открытый, доброжелательный тембр голоса.»",
-      tag: "Интонация",
+      advice: "Говорите ровно и спокойно: избегайте резких перепадов высоты голоса и эмоциональных всплесков, даже если клиент взволнован.",
+      script: "«Сохраняйте ровный, уверенный и доброжелательный тон на протяжении всего разговора.»",
+      tag: "Ровный тон",
     },
     EN: {
-      advice: "Mind your speech intonation: avoid monotone robotic script reading, emphasize key words naturally.",
-      script: "“Maintain a friendly, open, and confident tone of voice.”",
-      tag: "Intonation",
+      advice: "Speak evenly and calmly: avoid sharp pitch swings and emotional spikes, even when the client is upset.",
+      script: "“Keep a steady, confident and friendly tone throughout the conversation.”",
+      tag: "Steady tone",
     },
     KZ: {
-      advice: "Сөйлеу интонациясын қадағалаңыз: монотонды оқудан аулақ болып, негізгі сөздерге екпін жасаңыз.",
-      script: "«Ашық және мейірімді дауыс ырғағын сақтаңыз.»",
-      tag: "Интонация",
+      advice: "Бірқалыпты әрі сабырлы сөйлеңіз: клиент толқып тұрса да, дауыс биіктігінің күрт өзгеруінен және эмоционалды серпілістерден аулақ болыңыз.",
+      script: "«Әңгіме бойы бірқалыпты, сенімді және мейірімді үнді сақтаңыз.»",
+      tag: "Бірқалыпты үн",
     },
   },
   V2: {

@@ -105,9 +105,9 @@ export const CRITERIA_I18N: Record<string, CriterionI18n> = {
   },
   V1: {
     title: {
-      RU: "Голос: интонация",
-      EN: "Voice: intonation",
-      KZ: "Дауыс: интонация",
+      RU: "Ровный, спокойный голос",
+      EN: "Steady, calm voice",
+      KZ: "Бірқалыпты, сабырлы дауыс",
     },
   },
   V2: {

@@ -6,7 +6,7 @@ import { getEvaluator } from "./evaluator";
 import { toChecklistDef, toEvaluationDto, type ChecklistRow } from "./mappers";
 import type { OrganizerRecord } from "./organizerApi";
 import type { ChecklistInput } from "./schemas";
-import { scoreChecklist, validateAnswer } from "./scoring";
+import { scoreChecklist, snapToSteps, validateAnswer } from "./scoring";
 import { alignToAudio, toOffsets } from "./time";
 import type { Answer, ChecklistDef, ConversationDto, Lang, MessageDto, Speaker } from "./types";
 
@@ -168,8 +168,9 @@ export async function evaluateConversation(conversationId: string, checklistId?:
     const c = checklist.criteria.find((x) => x.id === v.criterionId);
     if (!c) continue;
     try {
-      validateAnswer(c, v.answer);
-      answers[c.id] = v.answer;
+      const a = snapToSteps(c, v.answer); // e.g. consultation 12 → 10 on a 0/5/10/15/20 scale
+      validateAnswer(c, a);
+      answers[c.id] = a;
     } catch {
       answers[c.id] = c.answerType === "BINARY" ? "no" : String(c.scaleMin);
     }
@@ -181,7 +182,8 @@ export async function evaluateConversation(conversationId: string, checklistId?:
       conversationId,
       checklistId: checklist.id,
       checklistSnapshot: JSON.stringify(checklist),
-      evaluator: evaluator.name,
+      // Which model(s) actually produced the verdicts (an evaluator may report its route, e.g. after a failover).
+      evaluator: (verdicts as { route?: string }).route ? `${evaluator.name}:${(verdicts as { route?: string }).route}` : evaluator.name,
       originalTotal: score.total,
       finalTotal: score.total,
       hasCriticalError: score.hasCriticalError,

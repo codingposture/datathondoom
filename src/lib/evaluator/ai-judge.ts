@@ -19,7 +19,11 @@ export async function runChecklistJudge(
     .map(
       (c) =>
         `- ID: "${c.id}" | ${c.code}: "${c.title}" | ${
-          c.answerType === "BINARY" ? "BINARY(yes/no)" : `SCALE(${c.scaleMin}..${c.scaleMax})`
+          c.answerType === "BINARY"
+            ? "BINARY(yes/no)"
+            : c.hints?.steps?.length
+              ? `SCALE(one of: ${c.hints.steps.join(", ")})`
+              : `SCALE(${c.scaleMin}..${c.scaleMax})`
         } | NA: ${c.naAllowed}${c.naRule ? ` (${c.naRule})` : ""}${c.isCritical ? " | CRITICAL" : ""}${
           c.description ? ` | ${c.description}` : ""
         }`

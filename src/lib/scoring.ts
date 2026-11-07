@@ -50,6 +50,26 @@ export function validateAnswer(c: CriterionDef, answer: Answer): void {
   if (!Number.isInteger(v) || v < c.scaleMin || v > c.scaleMax) {
     throw new Error(`Answer for ${c.code} must be an integer in ${c.scaleMin}..${c.scaleMax}`);
   }
+  const steps = c.hints?.steps;
+  if (steps?.length && !steps.includes(v)) throw new Error(`Answer for ${c.code} must be one of ${steps.join(", ")}`);
+}
+
+/** Allowed answers of a SCALE criterion, low to high. */
+export function scaleValues(c: Pick<CriterionDef, "scaleMin" | "scaleMax" | "hints">): number[] {
+  const steps = c.hints?.steps;
+  if (steps?.length) return [...steps].sort((a, b) => a - b);
+  return Array.from({ length: c.scaleMax - c.scaleMin + 1 }, (_, i) => c.scaleMin + i);
+}
+
+/** Snaps a numeric SCALE answer to the nearest allowed step (ties go down). Other answers are returned unchanged. */
+export function snapToSteps(c: CriterionDef, answer: Answer): Answer {
+  if (c.answerType !== "SCALE" || answer === "na" || !c.hints?.steps?.length) return answer;
+  const v = Number(answer);
+  if (!Number.isFinite(v)) return answer;
+  const steps = scaleValues(c);
+  let best = steps[0];
+  for (const s of steps) if (Math.abs(s - v) < Math.abs(best - v)) best = s;
+  return String(best);
 }
 
 /** Is this answer a failure of a critical criterion? */

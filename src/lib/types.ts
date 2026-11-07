@@ -21,7 +21,7 @@ export type Detector =
   | "keywords" // operator must use one of the keywords
   | "keywords_absent" // operator must NOT use any of the keywords
   // Voice criteria for calls (measured from the recording, see src/lib/audio):
-  | "voice_intonation" // lively vs monotone intonation
+  | "voice_intonation" // steady, calm voice vs strong pitch swings
   | "voice_interruptions" // operator does not talk over the client
   | "voice_pace" // no unexplained dead air, prompt responses
   | "voice_calm"; // calm tone and reaction when the client is upset
@@ -29,6 +29,8 @@ export type Detector =
 export interface CriterionHints {
   detector?: Detector;
   keywords?: Partial<Record<Lang, string[]>>;
+  /** Allowed values of a SCALE criterion (e.g. [0, 5, 10, 15, 20]); any integer in range when absent. */
+  steps?: number[];
 }
 
 export interface SectionDef {

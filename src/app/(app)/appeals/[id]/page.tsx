@@ -7,6 +7,7 @@ import { useToast } from "@/components/Toast";
 import { Transcript } from "@/components/Transcript";
 import { answerState, Spinner, StateIcon, useAnswerLabel } from "@/components/ui";
 import { api } from "@/lib/client";
+import { scaleValues } from "@/lib/scoring";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import type { AppealDto, ConversationDto, CriterionDef, CriterionResultDto, EvaluationDto, MessageDto } from "@/lib/types";
 
@@ -53,7 +54,7 @@ export default function AppealReviewPage({ params }: { params: Promise<{ id: str
     ? ["yes", "no"]
     : c.answerType === "BINARY"
       ? ["yes", "no"]
-      : Array.from({ length: c.scaleMax - c.scaleMin + 1 }, (_, i) => String(c.scaleMin + i));
+      : scaleValues(c).map(String);
   if (c?.naAllowed) options.push("na");
   const decided = appeal.status !== "OPEN";
 
