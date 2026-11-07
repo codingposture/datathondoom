@@ -32,7 +32,73 @@ async function evaluateUnifiedGroq(
     .map((m) => `[${m.idx}] ${m.speaker.toUpperCase()}: ${m.text}`)
     .join("\n");
 
-  const systemInstruction = `Ты — эксперт отдела контроля качества клиентского сервиса Freedom Broker.
+  const convLang = (conversation.language || "ru").toLowerCase();
+  const isEn = convLang === "en";
+  const isKz = convLang === "kz" || convLang === "kk";
+
+  const systemInstruction = isEn
+    ? `You are an expert QA evaluator for customer support at Freedom Broker.
+Your task is to objectively evaluate the dialogue against the criteria of the given checklist.
+
+CRITICAL LANGUAGE REQUIREMENT:
+- Write the "summary" and ALL "explanation" values in ENGLISH with quotes from the transcript.
+
+EVALUATION RULES:
+1. BINARY: "yes", "no", or "na" (only if NA: true).
+2. SCALE: integer string within scaleMin..scaleMax or "na".
+3. NA allowed ONLY if NA: true. For "na", provide naReason in English.
+4. evidenceIdx: array of message index IDs supporting the verdict.
+5. checkedRange: {from, to} if an action was omitted, otherwise null.
+6. explanation: clear, objective explanation in English with quotes.
+7. CRITICAL: violation of critical criteria fails the dialogue.
+8. Voice criteria without recording should be "na" (if allowed).
+
+Return STRICTLY JSON:
+{
+  "summary": "Brief analytical summary of the dialogue in English",
+  "verdicts": [
+    {
+      "criterionId": "id",
+      "answer": "yes",
+      "explanation": "Clear explanation in English...",
+      "evidenceIdx": [0],
+      "checkedRange": null,
+      "naReason": null
+    }
+  ]
+}`
+    : isKz
+    ? `Сіз — Freedom Broker клиенттік сервисінің сапаны бақылау бөлімінің сарапшысысыз.
+Сіздің міндетіңіз — диалогты объективті талдап, чек-парақ критерийлері бойынша бағалау.
+
+ТІЛ ТАЛАБЫ:
+- "summary" және барлық "explanation" мәндерін ҚАЗАҚ ТІЛІНДЕ транскрипттен дәйексөздермен жазыңыз.
+
+БАҒАЛАУ ЕРЕЖЕЛЕРІ:
+1. BINARY: "yes", "no" немесе "na" (егер NA: true рұқсат етілсе).
+2. SCALE: scaleMin..scaleMax шегіндегі бүтін сан немесе "na".
+3. NA тек NA: true көрсетілгенде ғана рұқсат етіледі. "na" үшін naReason қазақша жазыңыз.
+4. evidenceIdx: вердикті растайтын реплика нөмірлері [ID].
+5. checkedRange: егер әрекет өткізіп алынса {from, to}, әйтпесе null.
+6. explanation: қазақ тіліндегі дәлелді негіздеме.
+7. CRITICAL критерий — бұзу өрескел қате болып саналады.
+8. Аудиожазбасыз дауыстық критерийлер "na" болады (рұқсат етілсе).
+
+ҚАТАҢ JSON қайтарыңыз:
+{
+  "summary": "Диалог бойынша қысқаша аналитикалық қорытынды қазақ тілінде",
+  "verdicts": [
+    {
+      "criterionId": "id",
+      "answer": "yes",
+      "explanation": "Қазақ тіліндегі негіздеме...",
+      "evidenceIdx": [0],
+      "checkedRange": null,
+      "naReason": null
+    }
+  ]
+}`
+    : `Ты — эксперт отдела контроля качества клиентского сервиса Freedom Broker.
 Твоя задача — объективно проанализировать диалог и выставить оценки по критериям выданного чек-листа.
 
 ПРАВИЛА ОЦЕНИВАНИЯ:
@@ -60,7 +126,19 @@ async function evaluateUnifiedGroq(
   ]
 }`;
 
-  const promptText = `ТРАНСКРИПТ:
+  const promptText = isEn
+    ? `TRANSCRIPT:
+${transcript}
+
+CHECKLIST CRITERIA:
+${criteriaText}`
+    : isKz
+    ? `ТРАНСКРИПТ:
+${transcript}
+
+ЧЕК-ПАРАҚ КРИТЕРИЙЛЕРІ:
+${criteriaText}`
+    : `ТРАНСКРИПТ:
 ${transcript}
 
 КРИТЕРИИ ЧЕК-ЛИСТА:

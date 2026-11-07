@@ -16,7 +16,7 @@ type Props = {
 };
 
 export function QualityPanel({ evaluation, messages, selectedId, onSelect, onJump, onGoToFragment, onDispute }: Props) {
-  const { t, num, loc, critTitle, secName } = useI18n();
+  const { t, num, loc, critTitle, secName, clName } = useI18n();
   const answerLabel = useAnswerLabel();
   const ev = evaluation;
   const crit = (r: CriterionResultDto) => ev.checklist.criteria.find((c) => c.id === r.criterionId);
@@ -152,7 +152,7 @@ export function QualityPanel({ evaluation, messages, selectedId, onSelect, onJum
 
         <div className="small faint">
           {t("card.original")}: <b>{num(ev.originalTotal)}</b> · {t("card.final")}: <b>{num(ev.finalTotal)}</b> ·{" "}
-          {t("card.checklistUsed", { name: ev.checklist.name, version: ev.checklist.version })} · {t("card.evaluator", { name: ev.evaluator })}
+          {t("card.checklistUsed", { name: clName(ev.checklist.name), version: ev.checklist.version })} · {t("card.evaluator", { name: ev.evaluator })}
         </div>
       </div>
     </div>

@@ -39,6 +39,15 @@ export async function runChecklistJudge(
     summary: dossier.analystSummaryRu,
   };
 
+  const convLang = (dossier.language || "ru").toLowerCase();
+  const isEn = convLang === "en";
+  const isKz = convLang === "kz" || convLang === "kk";
+  const langRule = isEn
+    ? "6. In explanation, write a clear, objective explanation in ENGLISH with quotes."
+    : isKz
+    ? "6. Explanation бөлімінде дәлелді түсініктемені ҚАЗАҚ ТІЛІНДЕ жазыңыз."
+    : "6. В explanation напиши аргументированное объяснение на русском языке.";
+
   const systemInstruction = `Ты — беспристрастный Главный судья и аудитор контроля качества (AI #2: Judge).
 Твоя задача — изучить аналитическое досье от AI #1 (Analyzer) и вынести вердикт по КАЖДОМУ критерию выданного чек-листа.
 
@@ -48,7 +57,7 @@ export async function runChecklistJudge(
 3. N/A разрешен ТОЛЬКО если у критерия NA: true. При "na" укажи причину в naReason.
 4. В evidenceIdx укажи массив номеров подтверждающих реплик [ID].
 5. В checkedRange укажи {from, to} если действие пропущено, иначе null.
-6. В explanation напиши аргументированное объяснение на русском языке.
+${langRule}
 7. Для голосовых критериев без аудиозаписи ставь "na" (если разрешено).
 Вынеси вердикт ровно по всем критериям (по их ID).`;
 

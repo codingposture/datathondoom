@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { pickLocalized } from "../localized";
 import type { Lang } from "../types";
 import { DICTS, type DictKey } from "./dict";
-import { getCriterionTitle, getSectionName } from "./criteria";
+import { getCriterionTitle, getSectionName, locChecklistName } from "./criteria";
 
 type Ctx = {
   lang: Lang;
@@ -18,6 +18,8 @@ type Ctx = {
   critTitle: (code?: string | null, rawTitle?: string | null) => string;
   /** Translates standard section key and name to current UI language */
   secName: (key?: string | null, rawName?: string | null) => string;
+  /** Translates standard checklist name to current UI language */
+  clName: (name?: string | null) => string;
 };
 
 const I18nContext = createContext<Ctx | null>(null);
@@ -67,13 +69,14 @@ export function I18nProvider({ initial, children }: { initial: Lang; children: R
       },
       critTitle: (code, title) => getCriterionTitle(code, title, lang),
       secName: (key, name) => getSectionName(key, name, lang),
+      clName: (name) => locChecklistName(name, lang),
     };
   }, [lang, setLang]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
-export { getCriterionTitle, getSectionName } from "./criteria";
+export { getCriterionTitle, getSectionName, locChecklistName } from "./criteria";
 
 export function useI18n() {
   const ctx = useContext(I18nContext);

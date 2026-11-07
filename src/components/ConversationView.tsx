@@ -22,7 +22,7 @@ type Data = {
 };
 
 export function ConversationView({ id, embedded = false }: { id: string; embedded?: boolean }) {
-  const { t } = useI18n();
+  const { t, clName } = useI18n();
   const toast = useToast();
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +148,7 @@ export function ConversationView({ id, embedded = false }: { id: string; embedde
           <select className="select" value={checklistId} onChange={(e) => setChecklistId(e.target.value)} aria-label={t("dialogs.checklist")}>
             {checklists.map((cl) => (
               <option key={cl.id} value={cl.id}>
-                {cl.name} v{cl.version}{cl.isActive ? " ★" : ""}
+                {clName(cl.name)} v{cl.version}{cl.isActive ? " ★" : ""}
               </option>
             ))}
           </select>

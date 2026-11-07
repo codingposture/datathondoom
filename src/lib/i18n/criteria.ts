@@ -246,3 +246,13 @@ export function getSectionName(key?: string | null, rawName?: string | null, lan
   }
   return rawName || key || "";
 }
+
+/** Returns the checklist name translated into the current UI language. */
+export function locChecklistName(name?: string | null, lang: Lang = "RU"): string {
+  if (!name) return "";
+  if (name.includes("Базовый чек-лист CQA") || name.toLowerCase().includes("базовый чек-лист")) {
+    if (lang === "EN") return name.replace(/Базовый чек-лист CQA/gi, "Default CQA Checklist").replace(/Базовый чек-лист/gi, "Default Checklist");
+    if (lang === "KZ") return name.replace(/Базовый чек-лист CQA/gi, "Негізгі CQA чек-парағы").replace(/Базовый чек-лист/gi, "Негізгі чек-парақ");
+  }
+  return name;
+}
