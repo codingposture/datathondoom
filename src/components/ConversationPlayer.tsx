@@ -1,6 +1,12 @@
 "use client";
 
+// Call recording player built on wavesurfer.js (waveform, playback, seeking) with the
+// Regions plugin (highlighted fragment) and the Timeline plugin (time ruler).
+// The waveform is drawn in two speaker lanes — Client on top, Operator below — using each
+// message's aligned position in the recording (audioStart/audioEnd).
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import type WaveSurfer from "wavesurfer.js";
+import type RegionsPlugin from "wavesurfer.js/plugins/regions";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { formatDuration } from "@/lib/time";
 import type { MessageDto } from "@/lib/types";
@@ -10,213 +16,254 @@ export type PlayerHandle = { seek: (sec: number, play?: boolean) => void };
 
 type Props = {
   messages: MessageDto[];
-  durationSec: number;
-  audioSrc: string | null;
+  audioSrc: string;
   playerUrl?: string | null;
   highlight: { from: number; to: number } | null;
   onTime?: (sec: number) => void;
-  onSegmentClick?: (idx: number) => void;
 };
 
-const BARS = 220;
+export type Seg = { idx: number; speaker: MessageDto["speaker"]; start: number; end: number };
 
-type Seg = { idx: number; speaker: MessageDto["speaker"]; start: number; end: number };
-
+/** Spoken messages that are part of the recording, with their position in the audio. */
 export function buildSegments(messages: MessageDto[]): Seg[] {
-  const spoken = messages.filter((m) => m.speaker !== "system");
-  return spoken.map((m, i) => {
-    const next = spoken[i + 1]?.offsetSec ?? m.offsetSec + 6;
-    const est = Math.max(1.5, m.text.length * 0.065);
-    return { idx: m.idx, speaker: m.speaker, start: m.offsetSec, end: Math.max(m.offsetSec + 0.5, Math.min(next, m.offsetSec + est)) };
-  });
+  return messages
+    .filter((m) => m.speaker !== "system" && m.audioStart !== null && m.audioEnd !== null)
+    .map((m) => ({ idx: m.idx, speaker: m.speaker, start: m.audioStart as number, end: m.audioEnd as number }));
 }
 
-async function decodePeaks(buf: ArrayBuffer): Promise<{ peaks: number[]; duration: number }> {
-  const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  const ctx = new AC();
-  try {
-    const audio = await ctx.decodeAudioData(buf.slice(0));
-    const data = audio.getChannelData(0);
-    const step = Math.floor(data.length / BARS) || 1;
-    const peaks: number[] = [];
-    for (let i = 0; i < BARS; i++) {
-      let max = 0;
-      const end = Math.min(data.length, (i + 1) * step);
-      for (let j = i * step; j < end; j += 16) max = Math.max(max, Math.abs(data[j]));
-      peaks.push(max);
-    }
-    const top = Math.max(...peaks, 0.01);
-    return { peaks: peaks.map((p) => Math.pow(p / top, 0.7)), duration: audio.duration };
-  } finally {
-    ctx.close().catch(() => {});
-  }
-}
+const COLORS = { client: "#17362c", operator: "#2e8655", bot: "#9ba8a3", other: "#d3ddd7" };
+const HEIGHT = 84;
+const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 
 export const ConversationPlayer = forwardRef<PlayerHandle, Props>(function ConversationPlayer(
-  { messages, durationSec, audioSrc, playerUrl, highlight, onTime, onSegmentClick },
+  { messages, audioSrc, playerUrl, highlight, onTime },
   ref,
 ) {
   const { t } = useI18n();
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [peaks, setPeaks] = useState<number[] | null>(null);
-  const [audioDur, setAudioDur] = useState<number | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">(audioSrc ? "loading" : "idle");
-  const [time, setTime] = useState(0);
-  const [playing, setPlaying] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const timeline = useRef<HTMLDivElement>(null);
+  const ws = useRef<WaveSurfer | null>(null);
+  const regions = useRef<RegionsPlugin | null>(null);
+  const onTimeRef = useRef(onTime);
+  onTimeRef.current = onTime;
 
   const segments = useMemo(() => buildSegments(messages), [messages]);
-  const total = Math.max(audioDur ?? 0, durationSec, segments.length ? segments[segments.length - 1].end : 0, 1);
+  const segRef = useRef(segments);
+  segRef.current = segments;
 
-  // Download once, decode peaks for the two-lane waveform, and play from a blob URL.
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [time, setTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const pendingSeek = useRef<{ sec: number; play: boolean } | null>(null);
+
   useEffect(() => {
-    if (!audioSrc) return;
-    let url: string | null = null;
-    let alive = true;
-    setStatus("loading");
+    if (!container.current) return;
+    let destroyed = false;
+    let instance: WaveSurfer | null = null;
+
     (async () => {
-      try {
-        const res = await fetch(audioSrc);
-        if (!res.ok) throw new Error(String(res.status));
-        const buf = await res.arrayBuffer();
-        const type = res.headers.get("content-type") ?? "audio/mpeg";
-        url = URL.createObjectURL(new Blob([buf], { type }));
-        if (!alive) return;
-        setBlobUrl(url);
+      const [{ default: WaveSurferCtor }, { default: Regions }, { default: Timeline }] = await Promise.all([
+        import("wavesurfer.js"),
+        import("wavesurfer.js/plugins/regions"),
+        import("wavesurfer.js/plugins/timeline"),
+      ]);
+      if (destroyed || !container.current) return;
+
+      const regionsPlugin = Regions.create();
+      instance = WaveSurferCtor.create({
+        container: container.current,
+        url: audioSrc,
+        height: HEIGHT,
+        waveColor: COLORS.other,
+        // The played part is darkened on top of the speaker colors.
+        progressColor: "rgba(16, 55, 44, 0.42)",
+        cursorColor: "#10372c",
+        cursorWidth: 2,
+        normalize: true,
+        dragToSeek: true,
+        // No barWidth: the waveform stays one canvas, so bar positions map directly to time.
+        renderFunction: (peaks, ctx) => drawLanes(peaks, ctx, segRef.current, instance?.getDuration() ?? 0),
+        plugins: [
+          regionsPlugin,
+          Timeline.create({
+            container: timeline.current ?? undefined,
+            height: 16,
+            timeInterval: 10,
+            primaryLabelInterval: 6,
+            secondaryLabelInterval: 0,
+            formatTimeCallback: (s: number) => formatDuration(s),
+            style: { fontSize: "11px", color: "#8a9a94" },
+          }),
+        ],
+      });
+      ws.current = instance;
+      regions.current = regionsPlugin;
+
+      instance.on("ready", (d) => {
+        setDuration(d);
         setStatus("ready");
-        try {
-          const { peaks, duration } = await decodePeaks(buf);
-          if (alive) {
-            setPeaks(peaks);
-            setAudioDur(duration);
-          }
-        } catch {
-          /* playable but not decodable: lanes fall back to speech segments */
+        const p = pendingSeek.current;
+        if (p) {
+          instance!.setTime(p.sec);
+          if (p.play) instance!.play().catch(() => {});
+          pendingSeek.current = null;
         }
-      } catch {
-        if (alive) setStatus("error");
-      }
-    })();
+      });
+      instance.on("error", () => setStatus("error"));
+      instance.on("timeupdate", (s) => {
+        setTime(s);
+        onTimeRef.current?.(s);
+      });
+      instance.on("play", () => setPlaying(true));
+      instance.on("pause", () => setPlaying(false));
+      instance.on("finish", () => setPlaying(false));
+    })().catch(() => setStatus("error"));
+
     return () => {
-      alive = false;
-      if (url) URL.revokeObjectURL(url);
+      destroyed = true;
+      instance?.destroy();
+      ws.current = null;
+      regions.current = null;
     };
   }, [audioSrc]);
 
+  // Re-draw lanes when the message alignment changes.
+  useEffect(() => {
+    const w = ws.current;
+    if (w && status === "ready") w.setOptions({ renderFunction: (peaks, ctx) => drawLanes(peaks, ctx, segments, w.getDuration()) });
+  }, [segments, status]);
+
+  // Highlighted fragment = a non-editable region.
+  useEffect(() => {
+    const r = regions.current;
+    if (!r || status !== "ready") return;
+    r.clearRegions();
+    if (highlight && highlight.to > highlight.from) {
+      r.addRegion({ start: highlight.from, end: highlight.to, color: "rgba(182, 242, 149, 0.42)", drag: false, resize: false });
+    }
+  }, [highlight, status]);
+
   useImperativeHandle(ref, () => ({
     seek(sec, play = true) {
-      const a = audioRef.current;
-      setTime(sec);
-      onTime?.(sec);
-      if (a && blobUrl) {
-        a.currentTime = sec;
-        if (play) a.play().catch(() => {});
+      const w = ws.current;
+      if (!w || status !== "ready") {
+        pendingSeek.current = { sec, play };
+        return;
       }
+      w.setTime(Math.max(0, Math.min(sec, w.getDuration())));
+      if (play) w.play().catch(() => {});
     },
   }));
 
-  const toggle = () => {
-    const a = audioRef.current;
-    if (!a) return;
-    if (a.paused) a.play().catch(() => {});
-    else a.pause();
+  const changeSpeed = (s: number) => {
+    setSpeed(s);
+    ws.current?.setPlaybackRate(s, true);
   };
 
-  const onSeekInput = (sec: number) => {
-    setTime(sec);
-    onTime?.(sec);
-    if (audioRef.current && blobUrl) audioRef.current.currentTime = sec;
-  };
-
-  const speakerAt = (sec: number) => segments.find((s) => sec >= s.start && sec < s.end)?.speaker ?? null;
-  const pct = (sec: number) => `${(Math.max(0, Math.min(total, sec)) / total) * 100}%`;
-  const hl = highlight ? { left: pct(highlight.from), width: `calc(${pct(highlight.to)} - ${pct(highlight.from)})` } : null;
-
-  const lane = (which: "client" | "operator") => {
-    if (peaks) {
-      const w = 100 / peaks.length;
-      return (
-        <svg width="100%" height="34" preserveAspectRatio="none" viewBox="0 0 100 34" aria-hidden>
-          {peaks.map((p, i) => {
-            const sec = (i / peaks.length) * total;
-            const sp = speakerAt(sec);
-            const mine = which === "client" ? sp === "client" : sp === "operator" || sp === "bot";
-            const h = mine ? Math.max(2, p * 32) : 1.5;
-            const color = !mine ? "var(--border-strong)" : sp === "client" ? "var(--client)" : sp === "bot" ? "var(--bot)" : "var(--operator)";
-            return <rect key={i} x={i * w + w * 0.18} width={w * 0.64} y={17 - h / 2} height={h} fill={color} opacity={sec <= time ? 1 : 0.55} rx={0.2} />;
-          })}
-        </svg>
-      );
-    }
-    return (
-      <>
-        <div style={{ position: "absolute", left: 0, right: 0, top: 16, height: 1.5, background: "var(--border)" }} />
-        {segments
-          .filter((s) => (which === "client" ? s.speaker === "client" : s.speaker !== "client"))
-          .map((s) => (
-            <div
-              key={s.idx}
-              className={`seg seg--${s.speaker}`}
-              style={{ left: pct(s.start), width: `max(3px, calc(${pct(s.end)} - ${pct(s.start)}))` }}
-              title={`#${s.idx} · ${formatDuration(s.start)}`}
-              onClick={() => onSegmentClick?.(s.idx)}
-            />
-          ))}
-      </>
-    );
-  };
-
-  const isAudio = Boolean(audioSrc);
   return (
     <div className="card player">
       <div className="player__lanes">
-        <span className="player__lane-label">{t("speaker.client")}</span>
-        <div className="player__lane">
-          {lane("client")}
-          {hl ? <div className="player__highlight" style={hl} /> : null}
-          <div className="player__cursor" style={{ left: pct(time) }} />
+        <div className="player__labels" style={{ height: HEIGHT }}>
+          <span className="player__lane-label">{t("speaker.client")}</span>
+          <span className="player__lane-label">{t("speaker.operator")}</span>
         </div>
-        <span className="player__lane-label">{t("speaker.operator")}</span>
-        <div className="player__lane">
-          {lane("operator")}
-          {hl ? <div className="player__highlight" style={hl} /> : null}
-          <div className="player__cursor" style={{ left: pct(time) }} />
+        <div className="player__wave-wrap">
+          <div ref={container} className="player__wave" aria-label="waveform" />
+          <div ref={timeline} className="player__timeline" />
+          {status === "loading" ? <div className="player__overlay">{t("card.audioLoading")}</div> : null}
         </div>
       </div>
       <div className="player__controls">
-        {isAudio ? (
-          <button className="player__play" onClick={toggle} disabled={status !== "ready"} aria-label={playing ? "pause" : "play"}>
-            {playing ? <IconPause /> : <IconPlay />}
-          </button>
-        ) : null}
+        <button className="player__play" onClick={() => ws.current?.playPause()} disabled={status !== "ready"} aria-label={playing ? "pause" : "play"}>
+          {playing ? <IconPause /> : <IconPlay />}
+        </button>
         <span className="player__time">
-          {formatDuration(time)} / {formatDuration(total)}
+          {formatDuration(time)} / {formatDuration(duration)}
         </span>
-        <input className="player__seek" type="range" min={0} max={total} step={0.1} value={Math.min(time, total)} onChange={(e) => onSeekInput(Number(e.target.value))} aria-label="seek" />
+        <span className="player__legend">
+          <i style={{ background: COLORS.client }} /> {t("speaker.client")}
+          <i style={{ background: COLORS.operator }} /> {t("speaker.operator")}
+          <i style={{ background: COLORS.bot }} /> {t("speaker.bot")}
+        </span>
+        <span className="spacer" />
+        <select className="select select--sm" value={speed} onChange={(e) => changeSpeed(Number(e.target.value))} aria-label="speed" disabled={status !== "ready"}>
+          {SPEEDS.map((s) => (
+            <option key={s} value={s}>{s}×</option>
+          ))}
+        </select>
         {playerUrl ? (
           <a className="btn btn--ghost btn--sm" href={playerUrl} target="_blank" rel="noreferrer" title={t("card.openPlayer")}>
             <IconExternal />
           </a>
         ) : null}
       </div>
-      {isAudio && status === "loading" ? <div className="player__status">{t("card.audioLoading")}</div> : null}
-      {isAudio && status === "error" ? <div className="player__status" style={{ color: "var(--danger)" }}>{t("card.audioError")}</div> : null}
-      {!isAudio ? <div className="player__status">{t("card.timeline")}</div> : null}
-      {blobUrl ? (
-        <audio
-          ref={audioRef}
-          src={blobUrl}
-          preload="auto"
-          onTimeUpdate={(e) => {
-            const s = e.currentTarget.currentTime;
-            setTime(s);
-            onTime?.(s);
-          }}
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
-          onLoadedMetadata={(e) => Number.isFinite(e.currentTarget.duration) && setAudioDur(e.currentTarget.duration)}
-        />
-      ) : null}
+      {status === "error" ? <div className="player__status" style={{ color: "var(--danger)" }}>{t("card.audioError")}</div> : null}
     </div>
   );
 });
+
+/**
+ * Custom wavesurfer render function: draws the (mono) waveform as bars split into two lanes.
+ * A bar goes to the Client lane or the Operator lane depending on who speaks at that moment
+ * according to the aligned transcript; audio not attributed to anyone is drawn faintly in both.
+ */
+function drawLanes(peaks: Array<Float32Array | number[]>, ctx: CanvasRenderingContext2D, segs: Seg[], duration: number) {
+  const { width, height } = ctx.canvas;
+  const data = peaks[0];
+  if (!data || !data.length || !duration) return;
+  const dpr = Math.max(1, Math.round(width / Math.max(1, ctx.canvas.clientWidth || width)));
+  const bar = 2 * dpr;
+  const gap = 1 * dpr;
+  const n = Math.floor(width / (bar + gap));
+  const laneH = height / 2;
+  const half = laneH * 0.42;
+  const per = data.length / n;
+
+  // Per-bar amplitude (max of absolute samples), normalised to the loudest bar.
+  const amp = new Float32Array(n);
+  let top = 0;
+  for (let i = 0; i < n; i++) {
+    let m = 0;
+    const from = Math.floor(i * per);
+    const to = Math.min(data.length, Math.floor((i + 1) * per));
+    for (let j = from; j < to; j++) {
+      const v = Math.abs(data[j]);
+      if (v > m) m = v;
+    }
+    amp[i] = m;
+    if (m > top) top = m;
+  }
+  if (top === 0) top = 1;
+
+  let k = 0; // segments are time-ordered; walk them alongside the bars
+  for (let i = 0; i < n; i++) {
+    const sec = ((i + 0.5) / n) * duration;
+    while (k < segs.length && segs[k].end < sec) k++;
+    let who: Seg["speaker"] | null = null;
+    for (let j = Math.max(0, k - 2); j < Math.min(segs.length, k + 3); j++) {
+      if (sec >= segs[j].start && sec <= segs[j].end) {
+        who = segs[j].speaker;
+        break;
+      }
+    }
+    // Square-root-ish curve keeps quiet speech visible next to loud passages.
+    const h = Math.max(1 * dpr, Math.pow(amp[i] / top, 0.6) * half);
+    const x = i * (bar + gap);
+    const lane = (row: 0 | 1, color: string, hh: number) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(x, row * laneH + laneH / 2 - hh, bar, hh * 2);
+    };
+    if (who === "client") {
+      lane(0, COLORS.client, h);
+      lane(1, COLORS.other, 1 * dpr);
+    } else if (who === "operator" || who === "bot") {
+      lane(1, who === "bot" ? COLORS.bot : COLORS.operator, h);
+      lane(0, COLORS.other, 1 * dpr);
+    } else {
+      lane(0, COLORS.other, h * 0.45);
+      lane(1, COLORS.other, h * 0.45);
+    }
+  }
+}

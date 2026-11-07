@@ -12,7 +12,17 @@ export const recordSchema = z.object({
       text: z.string(),
     }),
   ),
-  audio_url: z.string().nullable().optional(),
+  // Empty strings count as "no recording"; only http(s) links are accepted.
+  audio_url: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+    z
+      .string()
+      .trim()
+      .url()
+      .refine((u) => /^https?:\/\//i.test(u), "audio_url must be an http(s) link")
+      .nullable()
+      .optional(),
+  ),
 });
 
 export type OrganizerRecord = z.infer<typeof recordSchema>;
@@ -42,11 +52,16 @@ export async function fetchDataset(groupId: string): Promise<OrganizerRecord[]> 
   return parsed.data?.records ?? [];
 }
 
-/** Accepts the organizer response envelope, a bare array of records, or a single record. */
-export function parseUploaded(json: unknown): OrganizerRecord[] {
-  const env = responseSchema.safeParse(json);
-  if (env.success && env.data.data) return env.data.data.records;
-  const arr = z.array(recordSchema).safeParse(json);
-  if (arr.success) return arr.data;
-  return [recordSchema.parse(json)];
+/**
+ * Accepts the organizer response envelope (same shape as invoke.json), a bare array of records,
+ * or a single record. Returns the dataset group from the envelope when present.
+ */
+export function parseUploaded(json: unknown): { groupId: string | null; records: OrganizerRecord[] } {
+  if (json && typeof json === "object" && "data" in json) {
+    const env = responseSchema.parse(json);
+    if (!env.isSuccess) throw new Error(env.error || "The file has isSuccess=false");
+    return { groupId: env.data?.dataset_group_id ?? null, records: env.data?.records ?? [] };
+  }
+  if (Array.isArray(json)) return { groupId: null, records: z.array(recordSchema).parse(json) };
+  return { groupId: null, records: [recordSchema.parse(json)] };
 }

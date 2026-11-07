@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useToast } from "@/components/Toast";
+import { UploadDialogsModal } from "@/components/UploadDialogsModal";
 import { ScorePill, Spinner } from "@/components/ui";
 import { api } from "@/lib/client";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -40,9 +41,9 @@ export default function DialogsPage() {
   const [checklists, setChecklists] = useState<ChecklistDef[]>([]);
   const [checklistId, setChecklistId] = useState("");
   const [groupInput, setGroupInput] = useState("DEV");
-  const [busy, setBusy] = useState<"" | "import" | "upload" | "eval">("");
+  const [busy, setBusy] = useState<"" | "import" | "eval">("");
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     try {
@@ -95,21 +96,6 @@ export default function DialogsPage() {
     }
   };
 
-  const doUpload = async (file: File) => {
-    setBusy("upload");
-    try {
-      const data = JSON.parse(await file.text());
-      const r = await api<{ total: number }>("/api/conversations/upload", { method: "POST", json: { groupId: "UPLOAD", data } });
-      toast(t("dialogs.uploaded", r));
-      await load();
-    } catch (e) {
-      toast((e as Error).message, "error");
-    } finally {
-      setBusy("");
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  };
-
   const doEvaluate = async (ids: string[]) => {
     if (!ids.length) return;
     setBusy("eval");
@@ -149,11 +135,9 @@ export default function DialogsPage() {
             {busy === "import" ? <Spinner /> : null}
             {busy === "import" ? t("dialogs.importing") : t("dialogs.import")}
           </button>
-          <button className="btn" onClick={() => fileRef.current?.click()} disabled={busy !== ""}>
-            {busy === "upload" ? <Spinner /> : null}
+          <button className="btn" onClick={() => setUploadOpen(true)} disabled={busy !== ""}>
             {t("dialogs.upload")}
           </button>
-          <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files?.[0] && doUpload(e.target.files[0])} />
         </div>
       </div>
 
@@ -235,6 +219,7 @@ export default function DialogsPage() {
                     </td>
                     <td>
                       {r.channel === "voice call" ? <span className="badge badge--info">☎ {t("channel.voice call")}</span> : <span className="badge">{t("channel.agent chat")}</span>}
+                      {r.hasAudio ? <span className="badge badge--green" style={{ marginLeft: 4 }} title={t("dialogs.hasAudio")}>♪ {t("dialogs.audio")}</span> : null}
                     </td>
                     <td>{r.language}</td>
                     <td className="num">{formatDuration(r.durationSec)}</td>
@@ -263,6 +248,17 @@ export default function DialogsPage() {
         )}
         {rows?.length ? <div className="small faint" style={{ padding: "10px 16px" }}>{t("dialogs.count", { n: rows.length })}</div> : null}
       </div>
+
+      {uploadOpen ? (
+        <UploadDialogsModal
+          onClose={() => setUploadOpen(false)}
+          onUploaded={(groupId) => {
+            setUploadOpen(false);
+            setFilters((f) => ({ ...f, groupId }));
+            load();
+          }}
+        />
+      ) : null}
     </>
   );
 }

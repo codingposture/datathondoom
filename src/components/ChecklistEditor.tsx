@@ -207,7 +207,7 @@ export function ChecklistEditor({ source }: { source: (ChecklistDef & { versions
           </div>
           <div className="weight-meter">
             <span className="small">{t("checklists.weightSum", { n: num(weightSum) })}</span>
-            <div className="bar"><i style={{ width: `${Math.min(100, weightSum)}%`, background: weightSum === 100 ? "var(--green)" : "var(--olive)" }} /></div>
+            <div className="bar"><i style={{ width: `${Math.min(100, weightSum)}%`, background: weightSum === 100 ? "var(--green)" : "var(--warn)" }} /></div>
           </div>
           {weightSum !== 100 ? <div className="alert alert--olive small">{t("checklists.weightWarn")}</div> : null}
         </div>

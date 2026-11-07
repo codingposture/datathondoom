@@ -16,5 +16,5 @@ export const IconPlus = (p: P) => (<svg {...base} {...p}><path d="M12 5v14M5 12h
 export const IconExternal = (p: P) => (<svg {...base} {...p}><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>);
 export const IconAlert = (p: P) => (<svg {...base} {...p}><path d="M12 9v4M12 17h.01M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>);
 export const IconFreedom = (p: P) => (
-  <svg viewBox="0 0 24 24" {...p}><path d="M3 3h18v8.5c0 5.5-4.2 8.6-9 9.5-4.8-.9-9-4-9-9.5z" fill="#3f8f3a" /><path d="M9 7h7v2.4h-4.4v2h3.8v2.3h-3.8V18H9z" fill="#fff" /></svg>
+  <svg viewBox="0 0 24 24" {...p}><path d="M3 3h18v8.5c0 5.5-4.2 8.6-9 9.5-4.8-.9-9-4-9-9.5z" fill="#b6f295" /><path d="M9 7h7v2.4h-4.4v2h3.8v2.3h-3.8V18H9z" fill="#10372c" /></svg>
 );
