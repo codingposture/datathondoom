@@ -25,8 +25,11 @@ export const POST = handle(async (req: Request) => {
   }
   const started = Date.now();
   const results: { conversationId: string; total?: number; error?: string }[] = [];
-  for (const id of ids) {
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
     try {
+      // Gentle pacing to respect rate limits during batch runs
+      if (i > 0) await new Promise((r) => setTimeout(r, 1200));
       const e = await evaluateConversation(id, checklistId);
       results.push({ conversationId: id, total: e.finalTotal });
     } catch (err) {

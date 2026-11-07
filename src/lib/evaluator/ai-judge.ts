@@ -15,65 +15,58 @@ export async function runChecklistJudge(
   checklist: ChecklistDef,
   messages: MessageDto[]
 ): Promise<CriterionVerdict[]> {
-  const criteriaSpec = checklist.criteria.map((c) => ({
-    id: c.id,
-    code: c.code,
-    title: c.title,
-    description: c.description,
-    answerType: c.answerType, // BINARY | SCALE
-    scaleMin: c.scaleMin,
-    scaleMax: c.scaleMax,
-    weight: c.weight,
-    naAllowed: c.naAllowed,
-    naRule: c.naRule,
-    isCritical: c.isCritical,
-  }));
+  const criteriaText = checklist.criteria
+    .map(
+      (c) =>
+        `- ID: "${c.id}" | ${c.code}: "${c.title}" | ${
+          c.answerType === "BINARY" ? "BINARY(yes/no)" : `SCALE(${c.scaleMin}..${c.scaleMax})`
+        } | NA: ${c.naAllowed}${c.naRule ? ` (${c.naRule})` : ""}${c.isCritical ? " | CRITICAL" : ""}${
+          c.description ? ` | ${c.description}` : ""
+        }`
+    )
+    .join("\n");
+
+  const compactDossier = {
+    greeting: dossier.greeting,
+    need: dossier.needIdentification,
+    consult: dossier.consultation,
+    security: dossier.security,
+    tone: dossier.politenessAndTone,
+    pauses: dossier.waitAndPauses,
+    escalation: dossier.escalation,
+    closing: dossier.closing,
+    audioSummary: dossier.audioAnalysis,
+    summary: dossier.analystSummaryRu,
+  };
 
   const systemInstruction = `Ты — беспристрастный Главный судья и аудитор контроля качества (AI #2: Judge).
-Твоя задача — изучить аналитическое досье от AI #1 (Analyzer) и вынести официальный вердикт по КАЖДОМУ критерию выданного чек-листа.
+Твоя задача — изучить аналитическое досье от AI #1 (Analyzer) и вынести вердикт по КАЖДОМУ критерию выданного чек-листа.
 
-ПРАВИЛА ОЦЕНИВАНИЯ:
-1. Типы ответов:
-   - Для критериев "BINARY": ответ строго "yes" (выполнен), "no" (не выполнен) или "na" (если разрешено naAllowed и применимо naRule).
-   - Для критериев "SCALE": ответ строкой целого числа в границах [scaleMin..scaleMax] (например "0", "1", "2") или "na" (если разрешено).
-2. N/A (Не применимо):
-   - Ответ "na" разрешен ТОЛЬКО если у критерия naAllowed === true и ситуация диалога соответствует naRule.
-   - Если naAllowed === false, ответ "na" КАТЕГОРИЧЕСКИ ЗАПРЕЩЕН.
-   - При ответе "na" обязательно укажи понятную причину в naReason (на русском языке).
-3. Доказательства (evidenceIdx):
-   - Укажи массив номеров реплик [ID], подтверждающих твой вердикт.
-4. Проверенный участок (checkedRange):
-   - Если действие отсутствует или не выполнено, укажи диапазон проверенных реплик { from, to } (например от первой реплики оператора до последней).
-5. Обоснование (explanation):
-   - Развернуто, четко и аргументированно напиши по-русски, почему выставлен такой балл, опираясь на факты из досье и цитаты.
-6. Критичность (isCritical):
-   - Для критических критериев (например, безопасность) будь предельно внимателен к любым нарушениям. Нарушение критического критерия приводит к грубой ошибке.
+ПРАВИЛА:
+1. BINARY: "yes", "no" или "na" (если разрешено).
+2. SCALE: строка целого числа в границах scaleMin..scaleMax (например "0","1","2") или "na".
+3. N/A разрешен ТОЛЬКО если у критерия NA: true. При "na" укажи причину в naReason.
+4. В evidenceIdx укажи массив номеров подтверждающих реплик [ID].
+5. В checkedRange укажи {from, to} если действие пропущено, иначе null.
+6. В explanation напиши аргументированное объяснение на русском языке.
+7. Для голосовых критериев без аудиозаписи ставь "na" (если разрешено).
+Вынеси вердикт ровно по всем критериям (по их ID).`;
 
-7. Голосовые критерии (интонация, перебивания, темп и паузы, спокойствие и реакция на эмоции клиента):
-   - Опирайся на объективные замеры в досье (acousticMetrics) и на audioAnalysis.
-   - Если аудио нет (чат) или acousticMetrics === null — ответ "na" (если разрешено) с причиной «нет аудиозаписи».
-   - Паузы во время удержания или после предупреждения клиента об ожидании не считаются нарушением.
-   - В explanation приводи конкретные числа из замеров (полутона, секунды, дБ) и номера реплик.
+  const promptText = `ДОСЬЕ ФАКТОВ AI #1:
+${JSON.stringify(compactDossier)}
 
-Ты должен вернуть вердикт ровно по КАЖДОМУ критерию из переданного списка (по его ID).`;
+КРИТЕРИИ ЧЕК-ЛИСТА:
+${criteriaText}
 
-  const promptText = `ДОСЬЕ ОТ AI #1 (ANALYZER):
-${JSON.stringify(dossier, null, 2)}
-
-КРИТЕРИИ ДЛЯ ОЦЕНКИ И ВЕСА (CHECKLIST):
-${JSON.stringify(criteriaSpec, null, 2)}
-
-ОБЩЕЕ ЧИСЛО РЕПЛИК В ДИАЛОГЕ: ${messages.length}
-
-Верни вердикт строго в JSON-массиве следующего формата:
+Верни строго JSON массив вердиктов по каждому criterionId:
 [
   {
-    "criterionId": "id_критерия_из_списка",
-    "answer": "yes", // или "no", "na", или числовая строка "0", "1", "2"
-    "explanation": "Подробное объяснение решения на русском языке...",
-    "evidenceIdx": [0, 2], // номера сообщений
-    "checkedRange": null, // или {"from": 0, "to": 15} если действие пропущено
-    "naReason": null // или строка с объяснением причины N/A если answer === "na"
+    "criterionId": "id",
+    "answer": "yes",
+    "explanation": "Объяснение...",
+    "evidenceIdx": [0],
+    "checkedRange": null,
+    "naReason": null
   }
 ]`;
 

@@ -5,6 +5,7 @@
  */
 import { runConversationAnalyzer } from "./ai-analyzer";
 import { runChecklistJudge } from "./ai-judge";
+import { mockEvaluator } from "./mock";
 import type { AudioBundle } from "../audio/metrics";
 import type { Evaluator } from "./types";
 import type { ChecklistDef, ConversationDto, CriterionVerdict, MessageDto } from "../types";
@@ -23,12 +24,17 @@ export const twoStageAiEvaluator: Evaluator = {
     checklist: ChecklistDef;
     audio?: AudioBundle | null;
   }): Promise<CriterionVerdict[]> {
-    // 1. Stage 1: AI #1 analyzes transcript and audio cues
-    const dossier = await runConversationAnalyzer(conversation, messages, audio ?? null);
+    try {
+      // 1. Stage 1: AI #1 analyzes transcript and audio cues
+      const dossier = await runConversationAnalyzer(conversation, messages, audio ?? null);
 
-    // 2. Stage 2: AI #2 evaluates the criteria against the dossier
-    const verdicts = await runChecklistJudge(dossier, checklist, messages);
+      // 2. Stage 2: AI #2 evaluates the criteria against the dossier
+      const verdicts = await runChecklistJudge(dossier, checklist, messages);
 
-    return verdicts;
+      return verdicts;
+    } catch (aiErr) {
+      console.warn("AI evaluation unavailable, falling back to heuristic engine:", (aiErr as Error).message);
+      return mockEvaluator.evaluate({ conversation, messages, checklist, audio });
+    }
   },
 };

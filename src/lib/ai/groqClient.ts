@@ -15,6 +15,7 @@ export interface GroqChatOptions {
   messages: GroqMessage[];
   temperature?: number;
   jsonMode?: boolean;
+  _retried?: boolean;
 }
 
 export class GroqApiError extends Error {
@@ -65,10 +66,15 @@ export async function callGroq(options: GroqChatOptions): Promise<string> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    // If gpt-oss-120b has an issue, try gpt-oss-20b as fallback
-    if (model === "openai/gpt-oss-120b" && (response.status === 429 || response.status >= 500)) {
-      console.warn("Groq 120b throttled, trying 20b fallback...");
-      return callGroq({ ...options, model: "openai/gpt-oss-20b" });
+    // If rate limited (429), check if retry delay is small (<= 8s) and retry once
+    if (response.status === 429 && !options._retried) {
+      const match = errorText.match(/try again in ([\d\.]+)s/i);
+      const waitSec = match ? parseFloat(match[1]) : 0;
+      if (waitSec > 0 && waitSec <= 8) {
+        console.warn(`Groq rate limit: waiting ${waitSec.toFixed(1)}s before retry...`);
+        await new Promise((r) => setTimeout(r, Math.ceil(waitSec * 1000) + 400));
+        return callGroq({ ...options, _retried: true });
+      }
     }
     throw new GroqApiError(response.status, errorText);
   }
