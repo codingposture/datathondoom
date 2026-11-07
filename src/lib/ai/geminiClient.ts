@@ -94,8 +94,14 @@ export async function callGemini(options: GeminiGenerateOptions): Promise<string
     }>;
   };
 
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  // Join all text parts (or pick the non-thought parts if marked)
+  const text = parts
+    .filter((p: { text?: string; thought?: boolean }) => !p.thought && typeof p.text === "string")
+    .map((p: { text?: string }) => p.text)
+    .join("") || parts.map((p: { text?: string }) => p.text || "").join("");
+
+  if (!text || text.trim() === "") {
     throw new Error("Gemini returned an empty response or unexpected structure.");
   }
 
