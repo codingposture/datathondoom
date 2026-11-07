@@ -50,7 +50,7 @@ function ChartTooltip({ active, payload, label, unit }: { active?: boolean; payl
 }
 
 export default function AnalyticsPage() {
-  const { t, num } = useI18n();
+  const { t, num, critTitle } = useI18n();
   const toast = useToast();
   const [d, setD] = useState<Data | null>(null);
   const [groups, setGroups] = useState<{ groupId: string; count: number }[]>([]);
@@ -140,7 +140,7 @@ export default function AnalyticsPage() {
                   {d.criteria.map((c) => (
                     <tr key={c.code} style={{ cursor: "default" }}>
                       <td className="mono faint">{c.code}</td>
-                      <td>{c.title}</td>
+                      <td>{critTitle(c.code, c.title)}</td>
                       <td className="num">{num(c.passRate)}</td>
                       <td className="num">{num(c.naRate)}</td>
                     </tr>

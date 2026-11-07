@@ -16,7 +16,7 @@ type Props = {
 };
 
 export function QualityPanel({ evaluation, messages, selectedId, onSelect, onJump, onGoToFragment, onDispute }: Props) {
-  const { t, num, loc } = useI18n();
+  const { t, num, loc, critTitle, secName } = useI18n();
   const answerLabel = useAnswerLabel();
   const ev = evaluation;
   const crit = (r: CriterionResultDto) => ev.checklist.criteria.find((c) => c.id === r.criterionId);
@@ -45,9 +45,9 @@ export function QualityPanel({ evaluation, messages, selectedId, onSelect, onJum
               return (
                 <button key={r.id} type="button" className={`crit ${selectedId === r.id ? "crit--selected" : ""}`} onClick={() => onSelect(r.id)}>
                   <StateIcon state={state} />
-                  <span className="crit__title" title={c?.title}>
+                  <span className="crit__title" title={critTitle(r.code, c?.title)}>
                     {c?.isCritical ? <span style={{ color: "var(--danger)" }}>● </span> : null}
-                    {c?.title ?? r.code}
+                    {critTitle(r.code, c?.title)}
                     {appeal?.status === "OPEN" ? <span className="badge badge--warn" style={{ marginLeft: 6 }}>{t("card.appealOpen")}</span> : null}
                   </span>
                   <span className={`crit__score ${state === "ok" ? "crit__score--ok" : state === "fail" ? "crit__score--fail" : ""}`}>
@@ -67,7 +67,7 @@ export function QualityPanel({ evaluation, messages, selectedId, onSelect, onJum
               <b>{t("card.critical")}.</b> {t("card.criticalHint")}:{" "}
               {ev.results
                 .filter((r) => crit(r)?.isCritical && answerState(crit(r), r.finalAnswer) !== "ok" && r.finalAnswer !== "na")
-                .map((r) => crit(r)?.title)
+                .map((r) => critTitle(r.code, crit(r)?.title))
                 .join(", ")}
             </span>
           </div>
@@ -79,7 +79,7 @@ export function QualityPanel({ evaluation, messages, selectedId, onSelect, onJum
             <div className="sections">
               {sections.map((s) => (
                 <div key={s.key} className="section-chip">
-                  <div className="section-chip__name">{s.name}</div>
+                  <div className="section-chip__name">{secName(s.key, s.name)}</div>
                   <div className="section-chip__val">{s.percent === null ? "N/A" : `${num(s.points)} / ${num(s.maxPoints)}`}</div>
                   <div className="bar"><i style={{ width: `${s.percent ?? 0}%` }} /></div>
                 </div>
@@ -93,7 +93,7 @@ export function QualityPanel({ evaluation, messages, selectedId, onSelect, onJum
         {selected ? (
           <CriterionDetail
             r={selected}
-            title={crit(selected)?.title ?? selected.code}
+            title={critTitle(selected.code, crit(selected)?.title)}
             weight={crit(selected)?.weight}
             answer={answerLabel(crit(selected), selected.finalAnswer)}
             originalAnswer={selected.finalAnswer !== selected.answer ? answerLabel(crit(selected), selected.answer) : null}
@@ -109,7 +109,7 @@ export function QualityPanel({ evaluation, messages, selectedId, onSelect, onJum
                 {lowered.map((r) => (
                   <div key={r.id} className="small">
                     <a href={`#msg-${r.evidenceIdx[0] ?? r.checkedFrom ?? 0}`} onClick={(e) => { e.preventDefault(); onSelect(r.id); }} style={{ fontWeight: 600 }}>
-                      {crit(r)?.title ?? r.code}
+                      {critTitle(r.code, crit(r)?.title)}
                     </a>
                     {": "}
                     <span className="muted">{loc(r.explanation)}</span>
@@ -139,7 +139,7 @@ export function QualityPanel({ evaluation, messages, selectedId, onSelect, onJum
                 const r = ev.results.find((x) => x.id === a.criterionResultId);
                 return (
                   <a key={a.id} href={`/appeals/${a.id}`} className="alert alert--olive small" style={{ display: "block" }}>
-                    <b>{r ? crit(r)?.title : ""}</b> —{" "}
+                    <b>{r ? critTitle(r.code, crit(r)?.title) : ""}</b> —{" "}
                     <span className={`badge ${a.status === "OPEN" ? "badge--warn" : a.status === "CHANGED" ? "badge--info" : "badge--green"}`}>{t(`appeals.status.${a.status}`)}</span>
                     {a.status !== "OPEN" && a.totalBefore !== null ? <> · {t("appeals.totalChange", { before: num(a.totalBefore), after: num(a.totalAfter) })}</> : null}
                     <div className="muted" style={{ marginTop: 2 }}>«{a.comment}»{a.reviewerReason ? <> → {a.reviewerReason}</> : null}</div>

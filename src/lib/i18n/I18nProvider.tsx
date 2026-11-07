@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { pickLocalized } from "../localized";
 import type { Lang } from "../types";
 import { DICTS, type DictKey } from "./dict";
+import { getCriterionTitle, getSectionName } from "./criteria";
 
 type Ctx = {
   lang: Lang;
@@ -13,6 +14,10 @@ type Ctx = {
   loc: (value: string | null | undefined) => string;
   /** Formats a number with the UI locale (e.g. 85,5 in RU/KZ). */
   num: (n: number | null | undefined, decimals?: number) => string;
+  /** Translates standard criteria code and title to current UI language */
+  critTitle: (code?: string | null, rawTitle?: string | null) => string;
+  /** Translates standard section key and name to current UI language */
+  secName: (key?: string | null, rawName?: string | null) => string;
 };
 
 const I18nContext = createContext<Ctx | null>(null);
@@ -60,11 +65,15 @@ export function I18nProvider({ initial, children }: { initial: Lang; children: R
         if (!fmt.has(decimals)) fmt.set(decimals, new Intl.NumberFormat(LOCALES[lang], { maximumFractionDigits: decimals }));
         return fmt.get(decimals)!.format(n);
       },
+      critTitle: (code, title) => getCriterionTitle(code, title, lang),
+      secName: (key, name) => getSectionName(key, name, lang),
     };
   }, [lang, setLang]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
+
+export { getCriterionTitle, getSectionName } from "./criteria";
 
 export function useI18n() {
   const ctx = useContext(I18nContext);
