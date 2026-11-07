@@ -16,6 +16,7 @@ model Conversation {
   language    String // RU | KZ | EN
   audioUrl    String?
   durationSec Float        @default(0)
+  audioMetrics String? // JSON voice metrics computed from the recording (cache, see src/lib/audio)
   importedAt  DateTime     @default(now())
   messages    Message[]
   evaluations Evaluation[]

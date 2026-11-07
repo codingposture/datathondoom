@@ -1,5 +1,6 @@
 // Server-side business operations shared by API routes and the seed script.
 import { randomUUID } from "node:crypto";
+import { getAudioBundle } from "./audio/metrics";
 import { prisma } from "./db";
 import { getEvaluator } from "./evaluator";
 import { toChecklistDef, toEvaluationDto, type ChecklistRow } from "./mappers";
@@ -36,6 +37,7 @@ export async function importRecords(groupId: string, records: OrganizerRecord[])
       language: LANGS.has(r.language) ? r.language : "RU",
       audioUrl: r.audio_url || null,
       durationSec: offsets.length ? offsets[offsets.length - 1] : 0,
+      audioMetrics: null, // recomputed from the (possibly new) recording on the next evaluation
     };
     await prisma.$transaction([
       prisma.message.deleteMany({ where: { conversationId: r.conversation_id } }),
@@ -157,7 +159,9 @@ export async function evaluateConversation(conversationId: string, checklistId?:
   if (!checklist) throw new HttpError(400, "No checklist exists yet");
   const { conversation, messages } = await loadConversation(conversationId);
   const evaluator = getEvaluator();
-  const verdicts = await evaluator.evaluate({ conversation, messages, checklist });
+  // Calls: measure the voice from the recording (cached); chats have no audio.
+  const audio = conversation.audioUrl ? await getAudioBundle(conversation, messages, Boolean(evaluator.wantsAudioBytes)) : null;
+  const verdicts = await evaluator.evaluate({ conversation, messages, checklist, audio });
 
   const answers: Record<string, Answer> = {};
   for (const v of verdicts) {

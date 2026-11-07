@@ -19,7 +19,12 @@ export type Detector =
   | "escalation"
   | "closing"
   | "keywords" // operator must use one of the keywords
-  | "keywords_absent"; // operator must NOT use any of the keywords
+  | "keywords_absent" // operator must NOT use any of the keywords
+  // Voice criteria for calls (measured from the recording, see src/lib/audio):
+  | "voice_intonation" // lively vs monotone intonation
+  | "voice_interruptions" // operator does not talk over the client
+  | "voice_pace" // no unexplained dead air, prompt responses
+  | "voice_calm"; // calm tone and reaction when the client is upset
 
 export interface CriterionHints {
   detector?: Detector;

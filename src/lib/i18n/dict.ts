@@ -1,5 +1,9 @@
 // UI dictionaries. Keys are shared; RU is the source of truth.
 const ru = {
+  "detector.voice_intonation": "Голос: интонация (не монотонно)",
+  "detector.voice_interruptions": "Голос: не перебивает клиента",
+  "detector.voice_pace": "Голос: темп и паузы",
+  "detector.voice_calm": "Голос: спокойствие и реакция на эмоции",
   "card.notRecorded": "нет в записи",
   "card.inRecording": "В записи",
   "dialogs.audio": "Запись",
@@ -237,6 +241,10 @@ export type DictKey = keyof typeof ru;
 export type Dict = Record<DictKey, string>;
 
 const en: Dict = {
+  "detector.voice_intonation": "Voice: intonation (not monotone)",
+  "detector.voice_interruptions": "Voice: does not interrupt",
+  "detector.voice_pace": "Voice: pace and pauses",
+  "detector.voice_calm": "Voice: calm tone and reaction to emotion",
   "card.notRecorded": "not in recording",
   "card.inRecording": "In recording",
   "dialogs.audio": "Audio",
@@ -463,6 +471,10 @@ const en: Dict = {
 };
 
 const kz: Dict = {
+  "detector.voice_intonation": "Дауыс: интонация (монотонды емес)",
+  "detector.voice_interruptions": "Дауыс: клиенттің сөзін бөлмейді",
+  "detector.voice_pace": "Дауыс: қарқын және үзілістер",
+  "detector.voice_calm": "Дауыс: сабырлылық және эмоцияға жауап",
   "card.notRecorded": "жазбада жоқ",
   "card.inRecording": "Жазбада",
   "dialogs.audio": "Жазба",

@@ -3,6 +3,8 @@
 import { encodeLocalized, type Localized } from "../localized";
 import { formatDuration } from "../time";
 import type { ChecklistDef, CriterionDef, CriterionVerdict, Lang, MessageDto } from "../types";
+import type { AudioBundle } from "../audio/metrics";
+import type { AudioMetrics } from "../audio/prosody";
 import type { Evaluator } from "./types";
 
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
@@ -27,6 +29,20 @@ const WORDS = {
   clientLeft: ["клиент завершил", "клиент покинул", "соединение с клиентом прервано", "клиентпен байланыс үзілді", "клиент чаттан шықты", "connection to customer lost", "customer left", "client left", "customer ended"],
   genericQuestion: ["чем могу помочь", "с чем помочь", "чем помочь", "остались вопросы", "еще вопросы", "дополнительные вопросы", "how can i help", "anything else", "қалай көмектесе", "тағы сұрақ"],
   hold: ["на удержании", "on hold", "күтуде"],
+  interruptApology: ["перебил", "перебиваю", "перебила", "перебью", "interrupt", "сөзіңізді бөлгенім", "бөлгенім үшін"],
+  complaint: ["уже час", "почти час", "сколько можно", "сколько ждать", "безобразие", "возмутительно", "недоволен", "недовольна", "жалоб", "почему так долго", "опять", "снова не", "не работает", "ужас", "this is ridiculous", "unacceptable", "again", "complain", "still not", "қашанға дейін", "шағым", "тағы да"],
+};
+
+// ---------- voice criteria (calls) ----------
+// Thresholds calibrated on the 5 DEV recordings: pitch variation inside phrases ranged 2.06–3.68 semitones.
+export const VOICE_THRESHOLDS = {
+  monotoneBelowSt: 2.2, // < 2.2 st → monotone
+  expressiveFromSt: 3.0, // ≥ 3.0 st → lively intonation
+  deadAirSec: 5, // silence the operator owes a reply for
+  slowMedianLatencySec: 3, // median response latency considered slow
+  upsetArousal: 1.2, // client phrase arousal (z) considered agitated
+  raisedDb: 6, // operator louder than own median by ≥ 6 dB…
+  raisedSt: 3, // …and higher by ≥ 3 semitones
 };
 
 // "я Тимур", "мен Дана", "Мен Нұрланмын", redacted names in call transcripts.
@@ -37,6 +53,8 @@ type Ctx = {
   messages: MessageDto[];
   ops: MessageDto[];
   range: { from: number; to: number } | null;
+  /** Voice metrics measured from the call recording; null for chats or when analysis failed. */
+  audio: AudioMetrics | null;
 };
 
 type Draft = Omit<CriterionVerdict, "criterionId">;
@@ -194,6 +212,106 @@ const detectors: Record<string, (c: CriterionDef, ctx: Ctx) => Draft> = {
     return verdict(scaleValue(c, 0), L(`Оператор не использовал ни одну из формулировок: ${kws.slice(0, 4).join(", ")}.`, `The operator used none of the expected phrases: ${kws.slice(0, 4).join(", ")}.`, `Оператор күтілген тұжырымдардың ешқайсысын қолданбады: ${kws.slice(0, 4).join(", ")}.`), [], ctx, { checked: true });
   },
 
+  voice_intonation(c, ctx) {
+    const v = ctx.audio?.operator;
+    if (!v) return noVoice(c, ctx);
+    const x = v.withinUttF0SdSt;
+    const T = VOICE_THRESHOLDS;
+    const nums = `${x} пт; диапазон ${v.f0RangeSt} пт; ${v.utterances} фраз`;
+    const numsEn = `${x} st; range ${v.f0RangeSt} st; ${v.utterances} phrases`;
+    const ev = [...v.perUtterance].sort((a, b) => (x < T.monotoneBelowSt ? a.f0SdSt - b.f0SdSt : b.f0SdSt - a.f0SdSt)).slice(0, 2);
+    const evMsgs = ev.map((u) => ctx.messages.find((m) => m.idx === u.idx)).filter((m): m is MessageDto => Boolean(m));
+    if (x >= T.expressiveFromSt)
+      return verdict(scaleValue(c, 1), L(`Живая, выразительная интонация: вариативность высоты голоса внутри фраз ${nums}.`, `Lively, expressive intonation: pitch variation within phrases ${numsEn}.`, `Жанды, мәнерлі интонация: фразалар ішіндегі дауыс биіктігінің өзгеруі ${nums}.`), evMsgs, ctx);
+    if (x >= T.monotoneBelowSt)
+      return verdict(scaleValue(c, 0.5), L(`Интонация ровная, местами выразительная: вариативность высоты голоса ${nums} (норма живой речи ≥ ${T.expressiveFromSt} пт).`, `Fairly even intonation, expressive in places: pitch variation ${numsEn} (lively speech ≥ ${T.expressiveFromSt} st).`, `Интонация бірқалыпты, кей жерде мәнерлі: дауыс биіктігінің өзгеруі ${nums} (жанды сөйлеу ≥ ${T.expressiveFromSt} пт).`), evMsgs, ctx);
+    return verdict(scaleValue(c, 0), L(`Монотонная речь: высота голоса почти не меняется внутри фраз (${nums}; порог монотонности < ${T.monotoneBelowSt} пт).`, `Monotone speech: pitch barely changes within phrases (${numsEn}; monotone below ${T.monotoneBelowSt} st).`, `Монотонды сөйлеу: фразалар ішінде дауыс биіктігі дерлік өзгермейді (${nums}; монотондылық шегі < ${T.monotoneBelowSt} пт).`), evMsgs, ctx, { checked: true });
+  },
+
+  voice_interruptions(c, ctx) {
+    const a = ctx.audio;
+    if (!a) return noVoice(c, ctx);
+    const byIdx = (i: number) => ctx.messages.find((m) => m.idx === i);
+    const apology = ctx.ops.filter((m) => has(m.text, WORDS.interruptApology));
+    const overlaps = a.overlaps;
+    if (!overlaps.length && !apology.length)
+      return verdict(scaleValue(c, 1), L("Оператор не перебивал клиента: наложений речи оператора на реплики клиента (≥ 1 с) в записи не найдено.", "The operator did not interrupt: no operator speech over the client (≥ 1 s) was found in the recording.", "Оператор клиенттің сөзін бөлмеді: жазбада оператордың клиент сөзімен қабаттасуы (≥ 1 с) табылмады."), [], ctx, { checked: true });
+    const ev = [...overlaps.map((o) => byIdx(o.operatorIdx)), ...apology].filter((m, i, arr): m is MessageDto => Boolean(m) && arr.indexOf(m) === i);
+    const parts: string[] = [];
+    const partsEn: string[] = [];
+    for (const o of overlaps) {
+      parts.push(`реплика #${o.operatorIdx} началась поверх речи клиента #${o.clientIdx} (наложение ${o.overlapSec} с)`);
+      partsEn.push(`message #${o.operatorIdx} started over the client's #${o.clientIdx} (${o.overlapSec} s overlap)`);
+    }
+    if (apology.length) {
+      parts.push(`оператор сам извинился за то, что перебил: ${q(apology[0])}`);
+      partsEn.push(`the operator apologised for interrupting: ${q(apology[0])}`);
+    }
+    return verdict(scaleValue(c, 0), L(`Оператор перебивал клиента: ${parts.join("; ")}.`, `The operator interrupted the client: ${partsEn.join("; ")}.`, `Оператор клиенттің сөзін бөлді: ${parts.join("; ")}.`), ev, ctx);
+  },
+
+  voice_pace(c, ctx) {
+    const a = ctx.audio;
+    if (!a) return noVoice(c, ctx);
+    const T = VOICE_THRESHOLDS;
+    const byIdx = (i: number | null) => (i === null ? undefined : ctx.messages.find((m) => m.idx === i));
+    // Dead air the operator owes: the next speaker after the silence is the operator, not during a hold,
+    // and the operator had not warned about the wait just before.
+    const owed = a.silences.filter((s) => {
+      if (s.duringHold || s.durSec < T.deadAirSec) return false;
+      const after = byIdx(s.afterIdx);
+      const before = byIdx(s.beforeIdx);
+      if (after?.speaker !== "operator") return false;
+      if (before?.speaker === "operator" && has(before.text, WORDS.waitWarn)) return false;
+      return true;
+    });
+    const lat = a.responseLatency.medianSec;
+    const slow = lat !== null && lat > T.slowMedianLatencySec;
+    if (!owed.length && !slow)
+      return verdict(scaleValue(c, 1), L(`Темп разговора в норме: медианная задержка ответа оператора ${lat ?? "—"} с, необъяснённых пауз ≥ ${T.deadAirSec} с нет.`, `Conversation pace is fine: median operator response delay ${lat ?? "—"} s, no unexplained pauses ≥ ${T.deadAirSec} s.`, `Әңгіме қарқыны қалыпты: оператор жауабының медиандық кідірісі ${lat ?? "—"} с, ${T.deadAirSec} с-тан ұзақ түсініксіз үзіліс жоқ.`), [], ctx, { checked: true });
+    const ev = owed.map((s) => byIdx(s.afterIdx)).filter((m): m is MessageDto => Boolean(m));
+    const pauses = owed.map((s) => `${s.durSec} с перед #${s.afterIdx}`).join(", ");
+    const pausesEn = owed.map((s) => `${s.durSec} s before #${s.afterIdx}`).join(", ");
+    const d = owed.length
+      ? L(`Необъяснённые паузы без предупреждения клиента: ${pauses}.`, `Unexplained pauses without warning the client: ${pausesEn}.`, `Клиентті ескертпестен түсініксіз үзілістер: ${pauses}.`)
+      : L(`Оператор отвечает медленно: медианная задержка ${lat} с (норма ≤ ${T.slowMedianLatencySec} с).`, `The operator responds slowly: median delay ${lat} s (≤ ${T.slowMedianLatencySec} s expected).`, `Оператор баяу жауап береді: медиандық кідіріс ${lat} с (қалыпты ≤ ${T.slowMedianLatencySec} с).`);
+    const v = verdict(scaleValue(c, 0), d, ev, ctx, { checked: true });
+    const s0 = owed[0];
+    return s0 && s0.beforeIdx !== null && s0.afterIdx !== null ? { ...v, checkedRange: { from: s0.beforeIdx, to: s0.afterIdx } } : v;
+  },
+
+  voice_calm(c, ctx) {
+    const a = ctx.audio;
+    if (!a || !a.client || !a.operator) return noVoice(c, ctx);
+    const T = VOICE_THRESHOLDS;
+    const firstOp = ctx.ops[0];
+    const opStartT = a.operator.perUtterance[0]?.t ?? 0;
+    // Agitation = a sustained acoustic episode (≥ 2 agitated client phrases within 30 s) after the operator joined,
+    // or explicit verbal dissatisfaction from the client.
+    const agitated = a.client.perUtterance.filter((u) => u.t >= opStartT && u.arousal >= T.upsetArousal);
+    const episodes = agitated.filter((u) => agitated.some((o) => o !== u && Math.abs(o.t - u.t) <= 30));
+    const verbal = ctx.messages.filter((m) => m.speaker === "client" && m.idx > firstOp.idx && has(m.text, WORDS.complaint));
+    const upset = [...episodes.map((u) => u.idx), ...verbal.map((m) => m.idx)].filter((v, i, arr) => arr.indexOf(v) === i).sort((x, y) => x - y);
+    if (!upset.length) {
+      const reason = L("Клиент говорил спокойно: эмоциональных всплесков (высота и громкость голоса выше обычных для клиента) и жалоб не выявлено.", "The client stayed calm: no emotional spikes (pitch and loudness above the client's norm) or complaints were found.", "Клиент сабырлы сөйледі: эмоционалды серпіліс (клиенттің әдеттегіден жоғары дауысы) және шағым анықталмады.");
+      return verdict("na", reason, [], ctx, { na: reason });
+    }
+    const firstUpset = ctx.messages.find((m) => m.idx === upset[0])!;
+    const upsetT = firstUpset.audioStart ?? 0;
+    const raised = a.operatorRaised.filter((r) => r.t >= upsetT - 1 && r.t <= upsetT + 20);
+    if (raised.length) {
+      const r0 = raised[0];
+      const m = ctx.messages.find((x) => x.idx === r0.idx);
+      return verdict(scaleValue(c, 0), L(`Клиент был взволнован (реплика #${firstUpset.idx}), а оператор повысил голос в ответ: реплика #${r0.idx} громче его обычной речи на ${r0.dbOver} дБ и выше на ${r0.stOver} пт.`, `The client was upset (message #${firstUpset.idx}) and the operator raised their voice: message #${r0.idx} is ${r0.dbOver} dB louder and ${r0.stOver} st higher than usual.`, `Клиент толқыды (#${firstUpset.idx}), ал оператор дауысын көтерді: #${r0.idx} әдеттегіден ${r0.dbOver} дБ қатты және ${r0.stOver} пт жоғары.`), [firstUpset, ...(m ? [m] : [])], ctx);
+    }
+    const reply = ctx.ops.filter((m) => m.idx > firstUpset.idx).slice(0, 2);
+    // A reaction to the emotion means empathy wording, not just politeness.
+    const reacted = reply.find((m) => has(m.text, WORDS.empathy));
+    if (reacted)
+      return verdict(scaleValue(c, 1), L(`Клиент был взволнован (реплика #${firstUpset.idx}); оператор сохранил спокойный тон (без повышения голоса) и отреагировал: ${q(reacted)}`, `The client was upset (message #${firstUpset.idx}); the operator kept a calm voice and responded: ${q(reacted)}`, `Клиент толқыды (#${firstUpset.idx}); оператор сабырлы үнін сақтап, жауап берді: ${q(reacted)}`), [firstUpset, reacted], ctx);
+    return verdict(scaleValue(c, 0), L(`Клиент был взволнован (реплика #${firstUpset.idx}); оператор голос не повышал, но на эмоцию клиента не отреагировал.`, `The client was upset (message #${firstUpset.idx}); the operator did not raise their voice but did not respond to the client's emotion.`, `Клиент толқыды (#${firstUpset.idx}); оператор дауысын көтермеді, бірақ клиенттің эмоциясына жауап бермеді.`), [firstUpset, ...reply], ctx, { checked: true });
+  },
+
   keywords_absent(c, ctx) {
     const kws = keywordsFor(c, ctx.lang);
     const hit = kws.length ? ctx.ops.filter((m) => has(m.text, kws)) : [];
@@ -202,6 +320,15 @@ const detectors: Record<string, (c: CriterionDef, ctx: Ctx) => Draft> = {
     return verdict(scaleValue(c, 1), L("Запрещённых формулировок не найдено. Проверены все сообщения оператора.", "No prohibited wording found. All operator messages were checked.", "Тыйым салынған тұжырымдар табылмады. Оператордың барлық хабарламалары тексерілді."), [], ctx, { checked: true });
   },
 };
+
+/** Voice criteria are not applicable without a recording (chats) or when the audio could not be analysed. */
+function noVoice(c: CriterionDef, ctx: Ctx): Draft {
+  const reason = ctx.audio
+    ? L("Голос оператора в записи не удалось проанализировать.", "The operator's voice could not be analysed in the recording.", "Жазбадағы оператор дауысын талдау мүмкін болмады.")
+    : L("Нет аудиозаписи (чат) — голосовой критерий не применяется.", "No recording (chat) — voice criteria do not apply.", "Аудиожазба жоқ (чат) — дауыс критерийі қолданылмайды.");
+  if (c.naAllowed) return verdict("na", reason, [], ctx, { na: reason });
+  return verdict(scaleValue(c, 0), reason, [], ctx, { checked: true });
+}
 
 const noKeywords = L("Для критерия не заданы ключевые слова — автоматическая проверка невозможна.", "No keywords are configured for this criterion, so it cannot be checked automatically.", "Критерий үшін кілт сөздер берілмеген — автоматты тексеру мүмкін емес.");
 
@@ -220,13 +347,14 @@ function detectorFor(c: CriterionDef): string {
 
 export const mockEvaluator: Evaluator = {
   name: "mock-heuristic-v1",
-  async evaluate({ conversation, messages, checklist }: { conversation: { language: Lang }; messages: MessageDto[]; checklist: ChecklistDef }) {
+  async evaluate({ conversation, messages, checklist, audio }: { conversation: { language: Lang }; messages: MessageDto[]; checklist: ChecklistDef; audio?: AudioBundle | null }) {
     const ops = messages.filter((m) => m.speaker === "operator");
     const ctx: Ctx = {
       lang: conversation.language,
       messages,
       ops,
       range: ops.length ? { from: ops[0].idx, to: messages[messages.length - 1].idx } : null,
+      audio: audio?.metrics ?? null,
     };
     return [...checklist.criteria]
       .sort((a, b) => a.order - b.order)

@@ -14,6 +14,7 @@ Requirements: Node.js 20+ and npm.
 npm install
 cp .env.example .env      # then set ORGANIZER_API_URL (see below)
 npm run setup             # creates prisma/dev.db and seeds the default checklist
+npm run checklist:add-voice   # optional: adds the voice criteria V1–V4 (calls) as a new checklist version
 npm run dev               # http://localhost:3000
 ```
 
@@ -88,6 +89,25 @@ Unit tests (scoring, rounding, N/A redistribution, timestamps): `npm test`.
 4. **Rounding** comes from the checklist: decimals and mode (half-up / down / up). The total is computed from unrounded values and rounded once.
 5. **Critical error.** A failed criterion marked critical is flagged separately. With the checklist policy *Обнулять итог* it also sets the total to 0.
 6. **Appeal decisions** re-run the same scoring with the reviewer's answer. `originalTotal` is kept and `finalTotal` is updated.
+
+## Voice criteria (calls)
+
+For calls, the server measures the operator's voice from the recording itself. The code is in `src/lib/audio/`. It decodes the mp3 in WASM and needs no native tools.
+
+**What it measures:**
+- pitch level and intonation variation;
+- loudness;
+- dead air;
+- response latency;
+- the operator talking over the client;
+- moments when the client sounds agitated or the operator raises their voice.
+
+**How the results are used:**
+- They are cached per call in `Conversation.audioMetrics` and cleared on re-import.
+- Evaluators get them as `audio.metrics`.
+- The Gemini evaluator also receives the real mp3. `audio_url` is resolved from the organizers' player page.
+
+`npm run checklist:add-voice` adds criteria V1–V4 to the active checklist. They are N/A for chats. The analysis behind them is in [docs/voice-analysis.md](docs/voice-analysis.md).
 
 ## Evaluator
 

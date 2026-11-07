@@ -35,7 +35,22 @@ type EditState = {
   criteria: EditCriterion[];
 };
 
-const DETECTORS: Detector[] = ["keywords", "keywords_absent", "greeting", "need", "consultation", "security", "politeness", "wait", "escalation", "closing"];
+const DETECTORS: Detector[] = [
+  "keywords",
+  "keywords_absent",
+  "greeting",
+  "need",
+  "consultation",
+  "security",
+  "politeness",
+  "wait",
+  "escalation",
+  "closing",
+  "voice_intonation",
+  "voice_interruptions",
+  "voice_pace",
+  "voice_calm",
+];
 const LANGS: Lang[] = ["RU", "KZ", "EN"];
 let seq = 0;
 const key = () => `k${Date.now().toString(36)}${(seq++).toString(36)}`;

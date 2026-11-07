@@ -1,39 +1,9 @@
 import { prisma } from "@/lib/db";
 import type { Params } from "@/lib/api";
 
-// The organizer audio_url returns an HTML player page whose <source> holds a short-lived signed mp3 link.
-// We resolve that link on the server (cached for a while) and stream the audio with Range support,
-// which avoids CORS and lets the browser decode the waveform.
-const cache = new Map<string, { url: string; expires: number }>();
-const TTL_MS = 40 * 60 * 1000;
+import { fetchMedia, resolveMediaUrl } from "@/lib/audio/source";
 
-function decodeHtml(s: string) {
-  return s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
-}
-
-async function resolveMediaUrl(id: string, audioUrl: string, force = false): Promise<string> {
-  const hit = cache.get(id);
-  if (!force && hit && hit.expires > Date.now()) return hit.url;
-  const res = await fetch(audioUrl, { cache: "no-store", signal: AbortSignal.timeout(60_000) });
-  if (!res.ok) throw new Error(`Recording source responded with HTTP ${res.status}`);
-  const type = res.headers.get("content-type") ?? "";
-  let url = audioUrl;
-  if (type.includes("text/html")) {
-    const html = await res.text();
-    const m = /<source[^>]+src="([^"]+)"/i.exec(html) ?? /<audio[^>]+src="([^"]+)"/i.exec(html);
-    if (!m) throw new Error("No audio source found in the recording page");
-    url = decodeHtml(m[1]);
-  } else {
-    await res.body?.cancel();
-  }
-  cache.set(id, { url, expires: Date.now() + TTL_MS });
-  return url;
-}
-
-async function fetchMedia(url: string, range: string | null) {
-  return fetch(url, { headers: range ? { range } : {}, cache: "no-store" });
-}
-
+// Streams the recording with Range support (avoids CORS, lets the browser decode the waveform).
 export async function GET(req: Request, { params }: Params<"id">) {
   const { id } = await params;
   const c = await prisma.conversation.findUnique({ where: { id }, select: { audioUrl: true } });

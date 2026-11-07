@@ -6,6 +6,8 @@
  * It DOES NOT judge or apply checklist points — it establishes ground truth.
  */
 import { callGemini, parseLlmJson, type GeminiContent, type GeminiPart } from "../ai/geminiClient";
+import type { AudioBundle } from "../audio/metrics";
+import { describeMetricsRu, type AudioMetrics } from "../audio/prosody";
 import type { ConversationDto, MessageDto } from "../types";
 
 export interface PauseEvent {
@@ -97,6 +99,13 @@ export interface DialogueAnalysisDossier {
   };
 
   audioAnalysis: AudioObservation | null;
+  /** Objective voice measurements from the recording (pitch, pauses, overlaps, loudness); null for chats. */
+  acousticMetrics:
+    | (Omit<AudioMetrics, "operator" | "client"> & {
+        operator: Omit<NonNullable<AudioMetrics["operator"]>, "perUtterance"> | null;
+        client: Omit<NonNullable<AudioMetrics["client"]>, "perUtterance"> | null;
+      })
+    | null;
   analystSummaryRu: string;
 }
 
@@ -106,33 +115,24 @@ function formatMessagesForPrompt(messages: MessageDto[]): string {
     .join("\n");
 }
 
-/**
- * Optionally try to fetch audio as base64 for Gemini multimodal analysis if audioUrl is present.
- */
-async function tryFetchAudioBase64(audioUrl: string | null): Promise<{ mimeType: string; data: string } | null> {
-  if (!audioUrl) return null;
-  try {
-    const res = await fetch(audioUrl, { signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) return null;
-    const arrayBuffer = await res.arrayBuffer();
-    // Limit to 15MB to avoid memory/payload bloat
-    if (arrayBuffer.byteLength > 15 * 1024 * 1024) return null;
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
-    const mimeType = res.headers.get("content-type") || "audio/mp3";
-    return { mimeType, data: base64 };
-  } catch {
-    return null;
-  }
+function withoutUtterances<T extends { perUtterance: unknown }>(v: T): Omit<T, "perUtterance"> {
+  const { perUtterance: _omit, ...rest } = v;
+  return rest;
 }
 
 export async function runConversationAnalyzer(
   conversation: ConversationDto,
-  messages: MessageDto[]
+  messages: MessageDto[],
+  audio: AudioBundle | null = null
 ): Promise<DialogueAnalysisDossier> {
   const parts: GeminiPart[] = [];
 
-  // Check if we can include audio data
-  const audioData = await tryFetchAudioBase64(conversation.audioUrl);
+  // The recording is downloaded server-side (audio_url may be a player page, not the file itself).
+  const audioData =
+    audio?.bytes && audio.bytes.byteLength <= 15 * 1024 * 1024
+      ? { mimeType: audio.mimeType || "audio/mpeg", data: Buffer.from(audio.bytes).toString("base64") }
+      : null;
+  const metrics = audio?.metrics ?? null;
   if (audioData) {
     parts.push({
       inlineData: {
@@ -160,14 +160,15 @@ export async function runConversationAnalyzer(
 6. Паузы и ожидание: Были ли задержки с ответом оператора более 60 секунд? Предупредил ли оператор клиента перед уходом на поиск информации ("минуту, уточню", "пожалуйста, подождите")?
 7. Передача вопроса (эскалация): Если вопрос передавался коллегам/в бэк-офис, был ли четко назван срок ответа (например, "в течение 24 часов", "до конца рабочего дня")?
 8. Завершение: Попрощался ли оператор корректно? Или клиент сам прервал диалог/покинул чат до завершения?
-9. Аудио (если передана аудиозапись): оцени интонацию, темп речи, четкость и перебивания.`;
+9. Аудио (если передана аудиозапись): оцени интонацию, темп речи, четкость и перебивания.
+10. Объективные голосовые замеры (если переданы): это измерения по самой записи — высота и вариативность интонации, громкость, паузы, наложения речи. Опирайся на них и сверяй со звуком; не выдумывай значения.`;
 
   const promptText = `Проанализируй следующий диалог:
 КАНАЛ: ${conversation.channel}
 ЯЗЫК: ${conversation.language}
 ДЛИТЕЛЬНОСТЬ: ${conversation.durationSec} сек
 AUDIO ПРИСУТСТВУЕТ: ${audioData ? "Да (прикреплено)" : "Нет (только транскрипт)"}
-
+${metrics ? `ОБЪЕКТИВНЫЕ ГОЛОСОВЫЕ ЗАМЕРЫ (по записи):\n${describeMetricsRu(metrics)}\n` : ""}
 ТРАНСКРИПТ:
 ${formatMessagesForPrompt(messages)}
 
@@ -307,6 +308,13 @@ ${formatMessagesForPrompt(messages)}
       evidenceIdx: [],
     },
     audioAnalysis: (parsed.audioAnalysis as AudioObservation | null) || null,
+    acousticMetrics: metrics
+      ? {
+          ...metrics,
+          operator: metrics.operator ? withoutUtterances(metrics.operator) : null,
+          client: metrics.client ? withoutUtterances(metrics.client) : null,
+        }
+      : null,
     analystSummaryRu: String(parsed.analystSummaryRu || "Анализ завершен."),
   };
 }
