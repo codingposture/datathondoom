@@ -10,6 +10,7 @@ import { AppealModal } from "./AppealModal";
 import { buildSegments, ConversationPlayer, type PlayerHandle } from "./ConversationPlayer";
 import { IconBack } from "./Icons";
 import { QualityPanel } from "./QualityPanel";
+import { Recommendations } from "./Recommendations";
 import { useToast } from "./Toast";
 import { Transcript } from "./Transcript";
 import { Spinner } from "./ui";
@@ -187,28 +188,42 @@ export function ConversationView({ id, embedded = false }: { id: string; embedde
           />
         </div>
 
-        {evaluation ? (
-          <QualityPanel
-            evaluation={evaluation}
-            messages={messages}
-            selectedId={selectedId}
-            onSelect={(rid) => {
-              setSelectedId(rid === selectedId ? null : rid);
-              const r = evaluation.results.find((x) => x.id === rid);
-              if (r && rid !== selectedId) goToFragment(r);
-            }}
-            onJump={(idx) => jumpTo(idx)}
-            onGoToFragment={goToFragment}
-            onDispute={(r) => setAppealFor(r?.id ?? null)}
-          />
-        ) : (
-          <div className="card">
-            <div className="card__head"><h2>{t("card.quality")}</h2></div>
-            <div className="card__body">
-              <div className="alert alert--info">{t("card.notEvaluated")}</div>
+        <div className="stack" style={{ gap: 18 }}>
+          {evaluation ? (
+            <>
+              <QualityPanel
+                evaluation={evaluation}
+                messages={messages}
+                selectedId={selectedId}
+                onSelect={(rid) => {
+                  setSelectedId(rid === selectedId ? null : rid);
+                  const r = evaluation.results.find((x) => x.id === rid);
+                  if (r && rid !== selectedId) goToFragment(r);
+                }}
+                onJump={(idx) => jumpTo(idx)}
+                onGoToFragment={goToFragment}
+                onDispute={(r) => setAppealFor(r?.id ?? null)}
+              />
+              <Recommendations
+                evaluation={evaluation}
+                conversation={c}
+                messages={messages}
+                onJump={(idx) => jumpTo(idx)}
+                onSelectCriterion={(rid) => {
+                  const r = evaluation.results.find((x) => x.id === rid);
+                  if (r) goToFragment(r);
+                }}
+              />
+            </>
+          ) : (
+            <div className="card">
+              <div className="card__head"><h2>{t("card.quality")}</h2></div>
+              <div className="card__body">
+                <div className="alert alert--info">{t("card.notEvaluated")}</div>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {evaluation && appealFor !== undefined ? (
