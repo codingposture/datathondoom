@@ -66,13 +66,13 @@ export async function callGroq(options: GroqChatOptions): Promise<string> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    // If rate limited (429), check if retry delay is small (<= 8s) and retry once
+    // If rate limited (429), check if retry delay is reasonable (<= 25s) and wait/retry once
     if (response.status === 429 && !options._retried) {
       const match = errorText.match(/try again in ([\d\.]+)s/i);
       const waitSec = match ? parseFloat(match[1]) : 0;
-      if (waitSec > 0 && waitSec <= 8) {
+      if (waitSec > 0 && waitSec <= 25) {
         console.warn(`Groq rate limit: waiting ${waitSec.toFixed(1)}s before retry...`);
-        await new Promise((r) => setTimeout(r, Math.ceil(waitSec * 1000) + 400));
+        await new Promise((r) => setTimeout(r, Math.ceil(waitSec * 1000) + 500));
         return callGroq({ ...options, _retried: true });
       }
     }
