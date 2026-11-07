@@ -6,6 +6,7 @@
  * and decides the final score/verdict for every criterion with justifications.
  */
 import { callGemini, parseLlmJson, type GeminiContent } from "../ai/geminiClient";
+import { callGroq, getGroqApiKey } from "../ai/groqClient";
 import type { DialogueAnalysisDossier } from "./ai-analyzer";
 import type { ChecklistDef, CriterionVerdict, MessageDto } from "../types";
 
@@ -83,14 +84,40 @@ ${JSON.stringify(criteriaSpec, null, 2)}
     },
   ];
 
-  const rawJson = await callGemini({
-    systemInstruction,
-    contents,
-    generationConfig: {
-      temperature: 0.05, // минимальная температура для строгого следования правилам
-      responseMimeType: "application/json",
-    },
-  });
+  let rawJson: string;
+  const hasGroq = Boolean(getGroqApiKey());
+
+  if (hasGroq) {
+    try {
+      rawJson = await callGroq({
+        messages: [
+          { role: "system", content: systemInstruction },
+          { role: "user", content: promptText },
+        ],
+        jsonMode: true,
+        temperature: 0.05,
+      });
+    } catch (groqErr) {
+      console.warn("Groq judge failed, falling back to Gemini:", (groqErr as Error).message);
+      rawJson = await callGemini({
+        systemInstruction,
+        contents,
+        generationConfig: {
+          temperature: 0.05,
+          responseMimeType: "application/json",
+        },
+      });
+    }
+  } else {
+    rawJson = await callGemini({
+      systemInstruction,
+      contents,
+      generationConfig: {
+        temperature: 0.05,
+        responseMimeType: "application/json",
+      },
+    });
+  }
 
   interface RawVerdict {
     criterionId: string;

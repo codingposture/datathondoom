@@ -6,6 +6,7 @@
  * It DOES NOT judge or apply checklist points — it establishes ground truth.
  */
 import { callGemini, parseLlmJson, type GeminiContent, type GeminiPart } from "../ai/geminiClient";
+import { callGroq, getGroqApiKey } from "../ai/groqClient";
 import type { AudioBundle } from "../audio/metrics";
 import { describeMetricsRu, type AudioMetrics } from "../audio/prosody";
 import type { ConversationDto, MessageDto } from "../types";
@@ -241,14 +242,42 @@ ${formatMessagesForPrompt(messages)}
 
   const contents: GeminiContent[] = [{ role: "user", parts }];
 
-  const rawJson = await callGemini({
-    systemInstruction,
-    contents,
-    generationConfig: {
-      temperature: 0.1,
-      responseMimeType: "application/json",
-    },
-  });
+  let rawJson: string;
+  const hasGroq = Boolean(getGroqApiKey());
+
+  // Use Groq for pure text chats to save Gemini tokens and achieve 500+ tok/s speed.
+  // Use Gemini whenever audio bytes are attached (voice calls).
+  if (!audioData && hasGroq) {
+    try {
+      rawJson = await callGroq({
+        messages: [
+          { role: "system", content: systemInstruction },
+          { role: "user", content: promptText },
+        ],
+        jsonMode: true,
+        temperature: 0.1,
+      });
+    } catch (groqErr) {
+      console.warn("Groq analyzer failed, falling back to Gemini:", (groqErr as Error).message);
+      rawJson = await callGemini({
+        systemInstruction,
+        contents,
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+        },
+      });
+    }
+  } else {
+    rawJson = await callGemini({
+      systemInstruction,
+      contents,
+      generationConfig: {
+        temperature: 0.1,
+        responseMimeType: "application/json",
+      },
+    });
+  }
 
   const parsed = parseLlmJson<Record<string, unknown>>(rawJson);
 
