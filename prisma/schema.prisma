@@ -1,0 +1,143 @@
+// CQA data model. JSON-ish fields are stored as strings (SQLite) and parsed in src/lib.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Conversation {
+  id          String       @id // conversation_id from the organizer API
+  groupId     String
+  channel     String // "agent chat" | "voice call"
+  language    String // RU | KZ | EN
+  audioUrl    String?
+  durationSec Float        @default(0)
+  importedAt  DateTime     @default(now())
+  messages    Message[]
+  evaluations Evaluation[]
+
+  @@index([groupId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  idx            Int
+  timestamp      String // original timestamp, preserved as-is
+  offsetSec      Float
+  speaker        String // client | operator | bot | system
+  text           String
+
+  @@unique([conversationId, idx])
+}
+
+model Checklist {
+  id             String       @id @default(cuid())
+  family         String // groups all versions of one checklist
+  name           String
+  version        Int
+  isActive       Boolean      @default(false)
+  decimals       Int          @default(1)
+  roundingMode   String       @default("half-up") // half-up | floor | ceil
+  criticalPolicy String       @default("flag") // flag | zero-total
+  createdAt      DateTime     @default(now())
+  sections       Section[]
+  criteria       Criterion[]
+  evaluations    Evaluation[]
+
+  @@unique([family, version])
+}
+
+model Section {
+  id          String      @id @default(cuid())
+  checklistId String
+  checklist   Checklist   @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  key         String // stable key within a checklist, referenced by criteria
+  name        String
+  order       Int
+  criteria    Criterion[]
+}
+
+model Criterion {
+  id          String    @id @default(cuid())
+  checklistId String
+  checklist   Checklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  sectionId   String?
+  section     Section?  @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  code        String
+  title       String
+  description String    @default("")
+  answerType  String // BINARY | SCALE
+  scaleMin    Int       @default(0)
+  scaleMax    Int       @default(1)
+  weight      Float
+  naAllowed   Boolean   @default(false)
+  naRule      String    @default("")
+  isCritical  Boolean   @default(false)
+  hints       String    @default("{}") // JSON: { detector?, keywords: { RU: [], KZ: [], EN: [] } }
+  order       Int
+}
+
+model Evaluation {
+  id                String            @id @default(cuid())
+  conversationId    String
+  conversation      Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  checklistId       String
+  checklist         Checklist         @relation(fields: [checklistId], references: [id])
+  checklistSnapshot String // JSON snapshot of the checklist used
+  evaluator         String
+  originalTotal     Float
+  finalTotal        Float
+  hasCriticalError  Boolean           @default(false)
+  finalCritical     Boolean           @default(false)
+  sectionScores     String            @default("[]") // JSON (original)
+  finalSections     String            @default("[]") // JSON (after appeals)
+  createdAt         DateTime          @default(now())
+  results           CriterionResult[]
+  appeals           Appeal[]
+
+  @@index([conversationId])
+}
+
+model CriterionResult {
+  id              String     @id @default(cuid())
+  evaluationId    String
+  evaluation      Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  criterionId     String
+  code            String
+  answer          String // "yes" | "no" | "na" | numeric string
+  points          Float
+  maxPoints       Float
+  effectiveWeight Float
+  explanation     String
+  evidenceIdx     String     @default("[]") // JSON number[]
+  checkedFrom     Int?
+  checkedTo       Int?
+  naReason        String?
+  finalAnswer     String
+  finalPoints     Float
+  finalMaxPoints  Float
+  appeals         Appeal[]
+}
+
+model Appeal {
+  id                String          @id @default(cuid())
+  evaluationId      String
+  evaluation        Evaluation      @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  criterionResultId String
+  criterionResult   CriterionResult @relation(fields: [criterionResultId], references: [id], onDelete: Cascade)
+  comment           String
+  status            String          @default("OPEN") // OPEN | CONFIRMED | CHANGED
+  previousAnswer    String
+  newAnswer         String?
+  reviewerReason    String?
+  totalBefore       Float?
+  totalAfter        Float?
+  createdAt         DateTime        @default(now())
+  decidedAt         DateTime?
+}
