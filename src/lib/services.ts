@@ -6,7 +6,7 @@ import { toChecklistDef, toEvaluationDto, type ChecklistRow } from "./mappers";
 import type { OrganizerRecord } from "./organizerApi";
 import type { ChecklistInput } from "./schemas";
 import { scoreChecklist, validateAnswer } from "./scoring";
-import { toOffsets } from "./time";
+import { alignToAudio, toOffsets } from "./time";
 import type { Answer, ChecklistDef, ConversationDto, Lang, MessageDto, Speaker } from "./types";
 
 export class HttpError extends Error {
@@ -25,6 +25,10 @@ export async function importRecords(groupId: string, records: OrganizerRecord[])
   let updated = 0;
   for (const r of records) {
     const offsets = toOffsets(r.transcript.map((t) => t.timestamp));
+    // Recording positions are only meaningful when the dialog has audio.
+    const spans = r.audio_url
+      ? alignToAudio(r.transcript.map((t, i) => ({ offsetSec: offsets[i] ?? 0, speaker: t.speaker, text: t.text })))
+      : null;
     const exists = await prisma.conversation.findUnique({ where: { id: r.conversation_id }, select: { id: true } });
     const data = {
       groupId,
@@ -44,6 +48,8 @@ export async function importRecords(groupId: string, records: OrganizerRecord[])
           offsetSec: offsets[idx] ?? 0,
           speaker: SPEAKERS.has(t.speaker) ? t.speaker : "system",
           text: t.text,
+          audioStart: spans?.[idx].audioStart ?? null,
+          audioEnd: spans?.[idx].audioEnd ?? null,
         })),
       }),
     ]);
@@ -58,7 +64,15 @@ export async function loadConversation(id: string): Promise<{ conversation: Conv
   if (!c) throw new HttpError(404, `Conversation ${id} not found`);
   return {
     conversation: { id: c.id, groupId: c.groupId, channel: c.channel, language: c.language as Lang, audioUrl: c.audioUrl, durationSec: c.durationSec },
-    messages: c.messages.map((m) => ({ idx: m.idx, timestamp: m.timestamp, offsetSec: m.offsetSec, speaker: m.speaker as Speaker, text: m.text })),
+    messages: c.messages.map((m) => ({
+      idx: m.idx,
+      timestamp: m.timestamp,
+      offsetSec: m.offsetSec,
+      speaker: m.speaker as Speaker,
+      text: m.text,
+      audioStart: m.audioStart,
+      audioEnd: m.audioEnd,
+    })),
   };
 }
 

@@ -68,23 +68,26 @@ export function ConversationView({ id, embedded = false }: { id: string; embedde
   const segments = useMemo(() => (data ? buildSegments(data.messages) : []), [data]);
   const hasAudio = Boolean(data?.conversation.audioUrl);
 
+  /** Scrolls the transcript to a message; for calls also highlights and plays it in the recording. */
   const jumpTo = useCallback(
     (idx: number, range?: { from: number; to: number } | null) => {
       if (!data) return;
       setActiveIdx(idx);
-      const seg = segments.find((s) => s.idx === idx);
-      const m = data.messages.find((x) => x.idx === idx);
-      const start = seg?.start ?? m?.offsetSec ?? 0;
-      let end = seg?.end ?? start + 3;
-      if (range) {
-        const last = data.messages.find((x) => x.idx === range.to);
-        end = Math.max(end, segments.find((s) => s.idx === range.to)?.end ?? last?.offsetSec ?? end);
-      }
-      setHighlight({ from: start, to: end });
-      player.current?.seek(start, hasAudio);
       history.replaceState(null, "", `#msg-${idx}`);
+      if (!hasAudio) return;
+      const inRange = (m: MessageDto) => (range ? m.idx >= range.from && m.idx <= range.to : m.idx === idx);
+      // Use the recorded messages of the target (a message that was not recorded has no audio position).
+      const recorded = data.messages.filter((m) => inRange(m) && m.audioStart !== null && m.audioEnd !== null);
+      if (!recorded.length) {
+        setHighlight(null);
+        return;
+      }
+      const from = Math.min(...recorded.map((m) => m.audioStart as number));
+      const to = Math.max(...recorded.map((m) => m.audioEnd as number));
+      setHighlight({ from, to: Math.max(to, from + 0.8) });
+      player.current?.seek(from, true);
     },
-    [data, segments, hasAudio],
+    [data, hasAudio],
   );
 
   const goToFragment = (r: CriterionResultDto | undefined) => {
@@ -95,9 +98,14 @@ export function ConversationView({ id, embedded = false }: { id: string; embedde
     jumpTo(idx, r.evidenceIdx.length ? null : r.checkedFrom !== null && r.checkedTo !== null ? { from: r.checkedFrom, to: r.checkedTo } : null);
   };
 
+  // Highlights the message being spoken while the recording plays (latest utterance that has started).
   const onTime = (sec: number) => {
-    const s = segments.find((x) => sec >= x.start && sec < x.end);
-    setPlayingIdx(s ? s.idx : null);
+    let current: number | null = null;
+    for (const s of segments) {
+      if (s.start > sec) break;
+      if (sec <= s.end + 1.5) current = s.idx; // keep the last utterance marked through short pauses
+    }
+    setPlayingIdx(current);
   };
 
   const evaluate = async () => {
@@ -131,7 +139,7 @@ export function ConversationView({ id, embedded = false }: { id: string; embedde
           ) : null}
           <h1>{t("card.title")}</h1>
           <div className="page-head__meta">
-            <span>{isCall ? t("card.call") : t("card.chat")} {c.id}</span>·<span>{t(`lang.${c.language}`)}</span>·<span>{formatDuration(c.durationSec)}</span>
+            <span>{isCall ? t("card.call") : t("card.chat")} {c.id}</span>·<span>{t(`lang.${c.language}`)}</span>·<span>{formatDuration(hasAudio ? Math.max(0, ...messages.map((m) => m.audioEnd ?? 0)) : c.durationSec)}</span>
             <span className="badge">{c.groupId}</span>
           </div>
         </div>
@@ -150,18 +158,19 @@ export function ConversationView({ id, embedded = false }: { id: string; embedde
         </div>
       </div>
 
-      <ConversationPlayer
-        ref={player}
-        messages={messages}
-        durationSec={c.durationSec}
-        audioSrc={c.audioUrl}
-        playerUrl={c.playerUrl}
-        highlight={highlight}
-        onTime={onTime}
-        onSegmentClick={(idx) => jumpTo(idx)}
-      />
+      {/* The audio panel exists only for dialogs that come with a recording (audio_url). */}
+      {c.audioUrl ? (
+        <ConversationPlayer
+          ref={player}
+          messages={messages}
+          audioSrc={c.audioUrl}
+          playerUrl={c.playerUrl}
+          highlight={highlight}
+          onTime={onTime}
+        />
+      ) : null}
 
-      <div className="grid-analysis">
+      <div className="grid-analysis" style={c.audioUrl ? undefined : { marginTop: 0 }}>
         <div className="card">
           <div className="card__head">
             <h2>{t("card.transcript")}</h2>
@@ -174,6 +183,7 @@ export function ConversationView({ id, embedded = false }: { id: string; embedde
             range={range}
             playingIdx={playingIdx}
             onSelect={(m) => jumpTo(m.idx)}
+            audioMode={hasAudio}
           />
         </div>
 

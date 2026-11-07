@@ -29,9 +29,9 @@ type Data = {
 };
 
 // Single-series charts: one hue (brand green), recessive grid, text in ink tokens.
-const MARK = "#3f8f3a";
-const GRID = "#ebe7d8";
-const INK = "#5d5b4e";
+const MARK = "#267349";
+const GRID = "#e1e8e4";
+const INK = "#5e6f69";
 const axis = { stroke: GRID, tick: { fill: INK, fontSize: 12 }, tickLine: false };
 
 function ChartTooltip({ active, payload, label, unit }: { active?: boolean; payload?: { value: number; payload: Record<string, unknown> }[]; label?: string; unit?: string }) {
@@ -128,7 +128,7 @@ export default function AnalyticsPage() {
                   <CartesianGrid horizontal={false} stroke={GRID} />
                   <XAxis type="number" domain={[0, 100]} {...axis} unit="%" />
                   <YAxis type="category" dataKey="label" width={44} {...axis} axisLine={false} />
-                  <Tooltip cursor={{ fill: "rgba(163,157,69,0.10)" }} content={<ChartTooltip unit="%" />} />
+                  <Tooltip cursor={{ fill: "rgba(38,115,73,0.08)" }} content={<ChartTooltip unit="%" />} />
                   <Bar dataKey="passRate" fill={MARK} radius={[0, 4, 4, 0]} maxBarSize={18} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
@@ -157,7 +157,7 @@ export default function AnalyticsPage() {
                     <CartesianGrid vertical={false} stroke={GRID} />
                     <XAxis dataKey="range" {...axis} interval={0} tick={{ fill: INK, fontSize: 11 }} />
                     <YAxis allowDecimals={false} {...axis} axisLine={false} />
-                    <Tooltip cursor={{ fill: "rgba(163,157,69,0.10)" }} content={<ChartTooltip />} />
+                    <Tooltip cursor={{ fill: "rgba(38,115,73,0.08)" }} content={<ChartTooltip />} />
                     <Bar dataKey="count" fill={MARK} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -174,7 +174,7 @@ export default function AnalyticsPage() {
                         <CartesianGrid vertical={false} stroke={GRID} />
                         <XAxis dataKey="label" {...axis} />
                         <YAxis domain={[0, 100]} {...axis} axisLine={false} />
-                        <Tooltip cursor={{ fill: "rgba(163,157,69,0.10)" }} content={<ChartTooltip />} />
+                        <Tooltip cursor={{ fill: "rgba(38,115,73,0.08)" }} content={<ChartTooltip />} />
                         <Bar dataKey="avg" fill={MARK} radius={[4, 4, 0, 0]} maxBarSize={44} isAnimationActive={false} />
                       </BarChart>
                     </ResponsiveContainer>

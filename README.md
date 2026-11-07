@@ -18,6 +18,34 @@ npm run dev               # http://localhost:3000
 ```
 
 Production mode: `npm run build && npm start`.
+
+### Loading dialogs
+
+There are three ways to load dialogs, and all of them upsert by `conversation_id`:
+
+- **From the organizer API:** on **Dialogs**, type a `group_id` and press **Импорт по group_id**.
+- **From a JSON file in the UI:** press **Загрузить JSON** and pick a file. The dialog previews how many dialogs and recordings the file has before importing.
+- **From a JSON file on the command line:** `npm run import:file -- problem/invoke.json [groupId]`.
+
+**Accepted file formats:**
+- the organizer API response (like `invoke.json`: `{ isSuccess, data: { dataset_group_id, records: [...] } }`);
+- a bare array of records;
+- a single record.
+
+The dataset group comes from the field you type, else `data.dataset_group_id`, else `UPLOAD`.
+
+**Recordings.** A record's `audio_url` (an http(s) link) is optional.
+- With it, the dialog card shows the audio panel: speaker lanes, play/seek, and jump-to-fragment.
+- Without it, the panel is hidden and the card shows only the transcript and the score.
+
+The link can be a direct audio file or the organizers' player page; the server resolves the page to the mp3.
+
+**Transcript ↔ audio alignment.** Call timestamps are wall-clock time, but the recording differs from that clock in three ways. At import, `alignToAudio` (`src/lib/time.ts`) corrects for them and stores each message's `audioStart`/`audioEnd`. The original timestamps are kept as they are.
+- The audio begins at the "recording started" system event, so messages logged before it are marked "нет в записи" (not in the recording).
+- "Recording paused … resumed" spans are cut out of the audio.
+- Each timestamp marks the end of an utterance, not its start.
+
+The constants were fitted against speech detected in the DEV recordings, and every call fits the same rule. Overlap between predicted and real speech rose from 18–62% to 76–88%. The player is built on wavesurfer.js (waveform, playback, regions, timeline).
 Unit tests (scoring, rounding, N/A redistribution, timestamps): `npm test`.
 
 ### Environment

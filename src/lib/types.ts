@@ -69,6 +69,9 @@ export interface MessageDto {
   offsetSec: number;
   speaker: Speaker;
   text: string;
+  /** Position of the utterance inside the recording (seconds); null for chats or unrecorded parts. */
+  audioStart: number | null;
+  audioEnd: number | null;
 }
 
 export interface ConversationDto {

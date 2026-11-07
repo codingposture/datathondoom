@@ -32,6 +32,8 @@ model Message {
   offsetSec      Float
   speaker        String // client | operator | bot | system
   text           String
+  audioStart     Float? // position in the recording (s); null when not recorded or no audio
+  audioEnd       Float?
 
   @@unique([conversationId, idx])
 }

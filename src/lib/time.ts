@@ -46,6 +46,77 @@ export function toOffsets(timestamps: string[]): number[] {
   });
 }
 
+// ---------- Transcript → recording alignment ----------
+//
+// Call transcripts use wall-clock ISO timestamps, but the recording is not a straight copy of that clock:
+//  * the recording starts at the "recording started" system event (messages before it are not in the audio);
+//  * "recording paused" … "recording resumed" cuts that span out of the audio;
+//  * each timestamp marks the END of an utterance (when the transcription line was finalized).
+// The constants were fitted against speech detected in the 5 DEV recordings (ffmpeg silencedetect):
+// overlap of predicted speech with real speech rose from 18–62% (naive offsets) to 76–88%.
+export const AUDIO_ALIGNMENT = {
+  /** Estimated speaking time per character of transcript text. */
+  secPerChar: 0.06,
+  /** Minimum length of an utterance, seconds. */
+  minUtterance: 0.6,
+  /** Constant correction between transcript clock and audio, seconds. */
+  shift: -1.0,
+  /** Seconds of each logged pause that are still present in the recording. */
+  pauseKept: 5.0,
+};
+
+const REC_START = ["запущены", "запущена", "басталды", "recording started", "recording and transcription started"];
+const REC_PAUSE = ["приостановлен", "тоқтатыл", "paused"];
+const REC_RESUME = ["возобновлен", "жалғастырыл", "resumed"];
+const has = (text: string, words: string[]) => {
+  const t = text.toLowerCase();
+  return words.some((w) => t.includes(w));
+};
+
+export type AlignInput = { offsetSec: number; speaker: string; text: string };
+export type AudioSpan = { audioStart: number | null; audioEnd: number | null };
+
+/**
+ * Maps every message to its [start, end] position inside the recording, in seconds.
+ * Messages that are not part of the recording (before it started or while it was paused) get nulls.
+ */
+export function alignToAudio(messages: AlignInput[], cfg = AUDIO_ALIGNMENT): AudioSpan[] {
+  const recStartMsg = messages.find((m) => m.speaker === "system" && has(m.text, REC_START));
+  const recStart = recStartMsg ? recStartMsg.offsetSec : messages[0]?.offsetSec ?? 0;
+
+  const pauses: { from: number; to: number }[] = [];
+  let open: number | null = null;
+  for (const m of messages) {
+    if (m.speaker !== "system") continue;
+    if (has(m.text, REC_PAUSE)) open = m.offsetSec;
+    else if (has(m.text, REC_RESUME) && open !== null) {
+      pauses.push({ from: open, to: m.offsetSec });
+      open = null;
+    }
+  }
+  if (open !== null) pauses.push({ from: open, to: Number.POSITIVE_INFINITY });
+
+  let lastStart = 0;
+  return messages.map((m) => {
+    const t = m.offsetSec;
+    if (t < recStart) return { audioStart: null, audioEnd: null };
+    const inPause = pauses.some((p) => t > p.from + cfg.pauseKept && t < p.to);
+    if (inPause && m.speaker !== "system") return { audioStart: null, audioEnd: null };
+    let x = t - recStart;
+    for (const p of pauses) {
+      if (t >= p.to) x -= Math.max(0, p.to - p.from - cfg.pauseKept);
+      else if (t > p.from) x -= Math.max(0, t - p.from - cfg.pauseKept);
+    }
+    const end = Math.max(0, x + cfg.shift);
+    if (m.speaker === "system") return { audioStart: end, audioEnd: end };
+    const len = Math.max(cfg.minUtterance, m.text.length * cfg.secPerChar);
+    // Keep transcript order: an utterance cannot start before the previous one started.
+    const start = Math.max(0, lastStart, end - len);
+    lastStart = start;
+    return { audioStart: start, audioEnd: Math.max(end, start + cfg.minUtterance) };
+  });
+}
+
 /** Formats seconds as M:SS or H:MM:SS. */
 export function formatDuration(sec: number): string {
   const s = Math.max(0, Math.round(sec));

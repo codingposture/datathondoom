@@ -9,7 +9,7 @@ export function ScoreRing({ value, was, critical }: { value: number; was?: numbe
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const pct = Math.max(0, Math.min(100, value)) / 100;
-  const color = critical ? "var(--danger)" : value >= 85 ? "var(--green)" : value >= 60 ? "var(--olive)" : "var(--danger)";
+  const color = critical ? "var(--danger)" : value >= 85 ? "var(--green)" : value >= 60 ? "var(--warn)" : "var(--danger)";
   return (
     <div className="ring" role="img" aria-label={`${num(value)} / 100`}>
       <svg width={size} height={size}>
