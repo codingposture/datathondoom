@@ -1,4 +1,4 @@
-# CQA — Conversation Quality Analytics
+# TEAM NAME: Covenant
 
 Prototype for the Freedom Broker CQA hackathon: configure a checklist, evaluate operator dialogs (RU / KZ / EN chats and calls), review the score with evidence, file an appeal, and let a reviewer confirm or change the score.
 
