@@ -149,3 +149,36 @@ describe("team checklist v4 → official IDs", () => {
     expect(v.critical).toBe(false);
   });
 });
+
+describe("v5 (official criteria + voice) export details", () => {
+  it("fills missing evidence where the action was expected", () => {
+    const ev = evaluation({ contact: "yes", discovery: "na", identification: "na", consultation: "15", empathy: "yes", dialogue: "10", closure: "no", critical: "yes" });
+    ev.results.forEach((r) => (r.evidenceIdx = []));
+    // turns: 1 client, 2 bot, 3 system, 4 operator, 5 client, 6 operator
+    const e = entryFor("demo-001", ["client", "bot", "system", "operator", "client", "operator"], ev);
+    if (e.status !== "ok") throw new Error("expected ok");
+    const t = Object.fromEntries(e.criteria.map((c) => [c.criterion_id, c.evidence_turns]));
+    expect(t).toEqual({ contact: [4], discovery: [1], identification: [1], consultation: [4, 6], empathy: [4, 6], dialogue: [4, 6], closure: [6], critical: [4, 6] });
+  });
+
+  it("lowers dialogue and empathy from failed voice criteria on calls", () => {
+    const voice = (code: string, answerType: "BINARY" | "SCALE", scaleMax: number) => ({
+      id: code, code, title: code, description: "", sectionKey: null, answerType, scaleMin: 0, scaleMax, weight: 5, naAllowed: true, naRule: "", isCritical: false, hints: {}, order: 9,
+    });
+    const v5: ChecklistDef = { ...checklist, criteria: [...checklist.criteria, voice("V1", "SCALE", 2), voice("V2", "BINARY", 1), voice("V3", "BINARY", 1), voice("V4", "BINARY", 1)] };
+    const base = evaluation({ contact: "yes", discovery: "yes", identification: "na", consultation: "20", empathy: "yes", dialogue: "10", closure: "yes", critical: "yes" });
+    const answers: Record<string, string> = { V1: "0", V2: "no", V3: "yes", V4: "no" };
+    const ev: EvaluationDto = {
+      ...base,
+      checklist: v5,
+      results: [...base.results, ...["V1", "V2", "V3", "V4"].map((code) => ({ ...base.results[0], id: `r-${code}`, criterionId: code, code, answer: answers[code], finalAnswer: answers[code] }))],
+    };
+    const e = entryFor("x", 10, ev);
+    if (e.status !== "ok") throw new Error("expected ok");
+    const v = Object.fromEntries(e.criteria.map((c) => [c.criterion_id, c.value]));
+    expect(v.dialogue).toBe(4); // two voice failures: 10 → 7 → 4
+    expect(v.empathy).toBe(false); // V4 = no
+    // (10 + 15 + 20 + 0 + 6 + 5) / (10 + 15 + 20 + 15 + 15 + 5) = 56 / 80 = 70
+    expect(e.score.final_score).toBe(70);
+  });
+});

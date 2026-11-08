@@ -9,7 +9,7 @@
 //   --source <file>     import dialogs from a JSON file first (organizer format) and keep its order/IDs
 //   --group <id>        dataset group in the database (default: from --source, else DEV)
 //   --team <name>       team_name (or env TEAM_NAME)
-//   --checklist <id>    checklist to evaluate with (default: the team checklist v4, «Базовый чек-лист CQA»)
+//   --checklist <id>    checklist to evaluate with (default: latest version of the team checklist «Базовый чек-лист CQA»)
 //   --official          use the organizers' 8-criterion checklist instead of v4
 //   --max-wait <sec>    longest rate-limit wait to sit out per retry (default 300)
 //   --fresh             re-evaluate everything instead of reusing earlier AI evaluations with the same checklist
@@ -74,8 +74,8 @@ async function main() {
     ? await prisma.checklist.findUnique({ where: { id: arg("checklist")! } })
     : flag("official")
       ? await prisma.checklist.findFirst({ where: { family: OFFICIAL_FAMILY }, orderBy: { version: "desc" } })
-      : await prisma.checklist.findFirst({ where: { name: "Базовый чек-лист CQA", version: 4 } });
-  if (!checklist) throw new Error("Checklist not found (v4 «Базовый чек-лист CQA», or run npm run checklist:official for --official)");
+      : await prisma.checklist.findFirst({ where: { name: "Базовый чек-лист CQA" }, orderBy: { version: "desc" } });
+  if (!checklist) throw new Error("Checklist not found («Базовый чек-лист CQA», or run npm run checklist:official for --official)");
   console.log(`Checklist: ${checklist.name} v${checklist.version}. Evaluating ${order.length} dialogs of ${groupId}…`);
 
   // 3. Evaluate (or reuse) each dialog through the backend.
@@ -84,7 +84,7 @@ async function main() {
   let i = 0;
   for (const id of order) {
     i++;
-    const turns = await prisma.message.count({ where: { conversationId: id } });
+    const turns = (await prisma.message.findMany({ where: { conversationId: id }, orderBy: { idx: "asc" }, select: { speaker: true } })).map((m) => m.speaker);
     try {
       const prev = flag("fresh")
         ? null

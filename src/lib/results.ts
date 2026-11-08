@@ -2,7 +2,7 @@
 // from evaluations stored in the database, and validates it.
 import { pickLocalized } from "./localized";
 import { OFFICIAL_CODES, type OfficialCode } from "./officialChecklist";
-import { round, scoreChecklist } from "./scoring";
+import { round } from "./scoring";
 import type { Answer, ChecklistDef, EvaluationDto } from "./types";
 
 export type ResultValue = boolean | number | null;
@@ -47,8 +47,13 @@ export function toResultValue(code: OfficialCode, answer: Answer): ResultValue {
   return answer === "yes";
 }
 
+/** Transcript size (number of turns) or the speaker of every turn, in transcript order. */
+export type Turns = number | string[];
+const countOf = (t: Turns) => (typeof t === "number" ? t : t.length);
+
 /** One results.json entry from an evaluation (uses final answers, i.e. after any appeal decisions). */
-export function buildEntry(conversationId: string, turnCount: number, ev: EvaluationDto): ResultEntry {
+export function buildEntry(conversationId: string, transcript: Turns, ev: EvaluationDto): ResultEntry {
+  const turnCount = countOf(transcript);
   const checklist = ev.checklist;
   const byCode = new Map(checklist.criteria.map((c) => [c.code, c]));
   const missing = OFFICIAL_CODES.filter((code) => !byCode.has(code));
@@ -69,18 +74,72 @@ export function buildEntry(conversationId: string, turnCount: number, ev: Evalua
     return { criterion_id: code, value: toResultValue(code, answer), rationale, evidence_turns: turns };
   });
 
-  // Recompute the total with the scoring engine from the exported answers (weights, N/A redistribution, 2 decimals).
-  const answers: Record<string, Answer> = {};
-  for (const c of checklist.criteria) answers[c.id] = ev.results.find((x) => x.criterionId === c.id)?.finalAnswer ?? "na";
-  const official: ChecklistDef = { ...checklist, decimals: 2, roundingMode: "half-up", criticalPolicy: "flag", criteria: checklist.criteria.filter((c) => (OFFICIAL_CODES as readonly string[]).includes(c.code)) };
-  const score = scoreChecklist(official, answers);
-  const critical = criteria.find((x) => x.criterion_id === "critical")!.value === true;
-  return {
-    conversation_id: conversationId,
-    status: "ok",
-    criteria,
-    score: { final_score: round(score.rawTotal, 2), critical_flag: critical },
+  applyVoiceCriteria(criteria, ev, turnCount);
+
+  // final_score from the 8 exported values (official weights, N/A redistributed, scales proportional, 2 decimals).
+  const values = Object.fromEntries(criteria.map((c) => [c.criterion_id, c.value])) as Record<OfficialCode, ResultValue>;
+  const critical = values.critical === true;
+  return { conversation_id: conversationId, status: "ok", criteria, score: { final_score: officialScore(values), critical_flag: critical } };
+}
+
+/**
+ * Team voice criteria (calls only; N/A for chats), when the checklist has them:
+ * V1 = 0 (strong pitch swings), V2 no (interrupting), V3 no (dead air) each lower dialogue by one step (10 → 7 → 4 → 0);
+ * V4 no (did not react to the client's emotion) makes empathy false.
+ */
+function applyVoiceCriteria(criteria: ResultCriterion[], ev: EvaluationDto, turnCount: number) {
+  const get = (code: string) => {
+    const c = ev.checklist.criteria.find((x) => x.code === code);
+    const r = c ? ev.results.find((x) => x.criterionId === c.id) : undefined;
+    if (!c || !r || r.finalAnswer === "na") return null;
+    const failed = code === "V1" ? Number(r.finalAnswer) === c.scaleMin : r.finalAnswer === "no";
+    const turns = r.evidenceIdx.map((i) => i + 1).filter((n) => n >= 1 && n <= turnCount);
+    return { code, title: c.title, answer: r.finalAnswer, failed, why: clean(pickLocalized(r.explanation, "RU")), turns };
   };
+  const note = (x: NonNullable<ReturnType<typeof get>>) => `[${x.code} «${x.title}»: ${x.answer}] ${x.why}`;
+  const voiceFails = ["V1", "V2", "V3"].map(get).filter((x): x is NonNullable<ReturnType<typeof get>> => Boolean(x?.failed));
+  const dialogue = criteria.find((c) => c.criterion_id === "dialogue")!;
+  if (voiceFails.length && typeof dialogue.value === "number") {
+    const steps = [0, 4, 7, 10];
+    const idx = Math.max(0, steps.indexOf(dialogue.value) - voiceFails.length);
+    dialogue.value = steps[idx];
+    dialogue.rationale = clean(`${dialogue.rationale} По аудиозаписи снижено на ${voiceFails.length} ступ.: ${voiceFails.map(note).join(" ")}`);
+    dialogue.evidence_turns = [...new Set([...dialogue.evidence_turns, ...voiceFails.flatMap((x) => x.turns)])].sort((a, b) => a - b);
+  }
+  const v4 = get("V4");
+  if (v4?.failed) {
+    const empathy = criteria.find((c) => c.criterion_id === "empathy")!;
+    empathy.value = false;
+    empathy.rationale = clean(`${empathy.rationale} По аудиозаписи: ${note(v4)}`);
+    empathy.evidence_turns = [...new Set([...empathy.evidence_turns, ...v4.turns])].sort((a, b) => a - b);
+  }
+}
+
+/**
+ * When the model cited no message, point to where the checked action was expected
+ * (appendix: «для пропущенного действия укажите место, где оно ожидалось»).
+ */
+export function fillEvidence(entry: ResultEntry, speakers: string[]): ResultEntry {
+  if (entry.status !== "ok" || !speakers.length) return entry;
+  const ops = speakers.flatMap((s, i) => (s === "operator" ? [i + 1] : []));
+  const firstClient = speakers.indexOf("client") + 1 || 1;
+  const last = speakers.length;
+  const firstOp = ops[0] ?? firstClient;
+  const lastOp = ops.at(-1) ?? last;
+  const where: Record<OfficialCode, (v: ResultValue) => number[]> = {
+    contact: () => [firstOp],
+    discovery: (v) => (v === null ? [firstClient] : [firstOp]),
+    identification: (v) => (v === null ? [firstClient] : [firstOp]),
+    consultation: (v) => (v === null ? [last] : ops.length ? ops : [last]),
+    empathy: () => (ops.length ? ops : [firstOp]),
+    dialogue: () => (ops.length ? ops : [firstOp]),
+    closure: (v) => (v === null ? [last] : [lastOp]),
+    critical: () => (ops.length ? ops : [firstOp]),
+  };
+  for (const c of entry.criteria) {
+    if (!c.evidence_turns.length) c.evidence_turns = [...new Set(where[c.criterion_id](c.value))].filter((n) => n >= 1 && n <= last);
+  }
+  return entry;
 }
 
 // ---------- Team checklist v4 → the 8 official IDs ----------
@@ -109,7 +168,8 @@ export function officialScore(values: Record<OfficialCode, ResultValue>): number
   return max > 0 ? round((got / max) * 100, 2) : 0;
 }
 
-export function buildEntryFromV4(conversationId: string, turnCount: number, ev: EvaluationDto): ResultEntry {
+export function buildEntryFromV4(conversationId: string, transcript: Turns, ev: EvaluationDto): ResultEntry {
+  const turnCount = countOf(transcript);
   const cl = ev.checklist;
   const get = (code: string) => {
     const c = cl.criteria.find((x) => x.code === code);
@@ -186,8 +246,9 @@ export function buildEntryFromV4(conversationId: string, turnCount: number, ev: 
 }
 
 /** Builds the entry from whichever checklist the evaluation used (official codes, or team checklist v4). */
-export function entryFor(conversationId: string, turnCount: number, ev: EvaluationDto): ResultEntry {
-  return isTeamV4(ev.checklist) ? buildEntryFromV4(conversationId, turnCount, ev) : buildEntry(conversationId, turnCount, ev);
+export function entryFor(conversationId: string, transcript: Turns, ev: EvaluationDto): ResultEntry {
+  const entry = isTeamV4(ev.checklist) ? buildEntryFromV4(conversationId, transcript, ev) : buildEntry(conversationId, transcript, ev);
+  return Array.isArray(transcript) ? fillEvidence(entry, transcript) : entry;
 }
 
 export function errorEntry(conversationId: string, error: string): ResultEntry {

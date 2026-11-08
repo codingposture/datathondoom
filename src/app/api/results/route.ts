@@ -6,7 +6,7 @@ import { getEvaluation, HttpError } from "@/lib/services";
 
 /**
  * GET /api/results?groupId=DEV&team=Name[&official=1] — results.json (organizers' format 1.0) built from the latest
- * AI evaluation of every dialog with the team checklist v4 (mapped onto the 8 official IDs), or with the official
+ * AI evaluation of every dialog with the latest team checklist (v4-style C1–C8 are mapped onto the 8 official IDs), or with the official
  * checklist when official=1. Does not evaluate anything: dialogs without such an evaluation are reported as
  * status "error". Use `npm run results:export` to evaluate and write the file.
  */
@@ -17,12 +17,12 @@ export const GET = handle(async (req: Request) => {
   const checklist =
     q.get("official") === "1"
       ? await prisma.checklist.findFirst({ where: { family: OFFICIAL_FAMILY }, orderBy: { version: "desc" } })
-      : await prisma.checklist.findFirst({ where: { name: "Базовый чек-лист CQA", version: 4 } });
+      : await prisma.checklist.findFirst({ where: { name: "Базовый чек-лист CQA" }, orderBy: { version: "desc" } });
   if (!checklist) throw new HttpError(400, "Checklist not found");
   const conversations = await prisma.conversation.findMany({
     where: { groupId },
     orderBy: { id: "asc" },
-    select: { id: true, _count: { select: { messages: true } } },
+    select: { id: true, messages: { orderBy: { idx: "asc" }, select: { speaker: true } } },
   });
   if (!conversations.length) throw new HttpError(404, `No dialogs in group ${groupId}`);
 
@@ -40,7 +40,7 @@ export const GET = handle(async (req: Request) => {
     }
     try {
       routes.push(ev.evaluator);
-      entries.push(entryFor(c.id, c._count.messages, await getEvaluation(ev.id)));
+      entries.push(entryFor(c.id, c.messages.map((m) => m.speaker), await getEvaluation(ev.id)));
     } catch (e) {
       entries.push(errorEntry(c.id, (e as Error).message));
     }
