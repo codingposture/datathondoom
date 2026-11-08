@@ -13,7 +13,7 @@ import { getEvaluation, HttpError } from "@/lib/services";
 export const GET = handle(async (req: Request) => {
   const q = new URL(req.url).searchParams;
   const groupId = q.get("groupId") || "DEV";
-  const team = q.get("team") || process.env.TEAM_NAME || "datathondoom";
+  const team = q.get("team") || process.env.TEAM_NAME || "Covenant";
   const checklist =
     q.get("official") === "1"
       ? await prisma.checklist.findFirst({ where: { family: OFFICIAL_FAMILY }, orderBy: { version: "desc" } })

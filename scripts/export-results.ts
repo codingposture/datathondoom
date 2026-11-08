@@ -51,7 +51,7 @@ async function evaluateWithRetry(id: string, checklistId: string, tries = 5) {
 async function main() {
   const set = arg("set") ?? "dev";
   if (set !== "dev" && set !== "prod") throw new Error("--set must be dev or prod");
-  const team = arg("team") ?? process.env.TEAM_NAME ?? "datathondoom";
+  const team = arg("team") ?? process.env.TEAM_NAME ?? "Covenant";
   process.env.EVALUATOR_STRICT = "1"; // never replace an AI evaluation with heuristics in official results
 
   // 1. Dataset (optionally imported from the organizer JSON file, preserving its IDs and order).
